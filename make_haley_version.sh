@@ -10,3 +10,7 @@ export LDFLAGS="-Wl,-z,relro -Wl,--as-needed -ltinfo -lnsl -lattr -ldl -lpthread
 ./configure --with-features=huge --without-x --disable-gui --enable-pythoninterp --prefix=/usr --with-modified-by=haley.teng@gmail.com
 make
 
+if [ "$1" == "install" ]; then
+	sudo make install
+fi
+
