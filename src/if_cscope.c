@@ -1284,7 +1284,20 @@ cs_find_common(opt, pat, forceit, verbose, use_ll, cmdline)
 		     */
 		    qi = (bt_quickfix(wp->w_buffer) && wp->w_llist_ref != NULL)
 			?  wp->w_llist_ref : wp->w_llist;
-		qf_jump(qi, 0, 0, forceit);
+
+		if (totmatches == 1) {
+		    /* only 1 item is matched, jump to it directly */
+		    qf_jump(qi, 0, 0, forceit);
+		} else {
+		    /* more than 1 item is matched,
+		     * open the 'quickfix' window, so user can select.
+		     */
+		    exarg_T ea;
+
+		    ea.cmdidx = CMD_copen;
+		    vim_memset(&ea, 0, sizeof(ea));
+		    ex_copen(&ea);
+		}
 	    }
 	}
 	mch_remove(tmp);
