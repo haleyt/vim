@@ -39,6 +39,9 @@
  */
 # define rb_cFalseClass		(*dll_rb_cFalseClass)
 # define rb_cFixnum		(*dll_rb_cFixnum)
+# if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 20
+#  define rb_cFloat		(*dll_rb_cFloat)
+# endif
 # define rb_cNilClass		(*dll_rb_cNilClass)
 # define rb_cSymbol		(*dll_rb_cSymbol)
 # define rb_cTrueClass		(*dll_rb_cTrueClass)
@@ -83,6 +86,14 @@
  * rb_int2big */
 # define rb_num2long rb_num2long_stub
 # define rb_int2big rb_int2big_stub
+#endif
+
+#if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 20 \
+	&& SIZEOF_INT < SIZEOF_LONG
+/* Ruby 2.0 defines a number of static functions which use rb_fix2int and
+ * rb_num2int if SIZEOF_INT < SIZEOF_LONG (64bit) */
+# define rb_fix2int rb_fix2int_stub
+# define rb_num2int rb_num2int_stub
 #endif
 
 #include <ruby.h>
@@ -178,13 +189,20 @@ static void ruby_vim_init(void);
 #define rb_hash_new			dll_rb_hash_new
 #define rb_inspect			dll_rb_inspect
 #define rb_int2inum			dll_rb_int2inum
+#if SIZEOF_INT < SIZEOF_LONG /* 64 bits only */
+#define rb_fix2int			dll_rb_fix2int
+#define rb_num2int			dll_rb_num2int
+#define rb_num2uint			dll_rb_num2uint
+#endif
 #define rb_lastline_get			dll_rb_lastline_get
 #define rb_lastline_set			dll_rb_lastline_set
 #define rb_load_protect			dll_rb_load_protect
 #ifndef RUBY19_OR_LATER
 #define rb_num2long			dll_rb_num2long
 #endif
+#if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER <= 19
 #define rb_num2ulong			dll_rb_num2ulong
+#endif
 #define rb_obj_alloc			dll_rb_obj_alloc
 #define rb_obj_as_string		dll_rb_obj_as_string
 #define rb_obj_id			dll_rb_obj_id
@@ -242,6 +260,9 @@ static void ruby_vim_init(void);
 static VALUE (*dll_rb_assoc_new) (VALUE, VALUE);
 VALUE *dll_rb_cFalseClass;
 VALUE *dll_rb_cFixnum;
+#if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 20
+VALUE *dll_rb_cFloat;
+#endif
 VALUE *dll_rb_cNilClass;
 static VALUE *dll_rb_cObject;
 VALUE *dll_rb_cSymbol;
@@ -268,7 +289,11 @@ static VALUE (*dll_rb_hash_aset) (VALUE, VALUE, VALUE);
 static VALUE (*dll_rb_hash_new) (void);
 static VALUE (*dll_rb_inspect) (VALUE);
 static VALUE (*dll_rb_int2inum) (long);
-static VALUE (*dll_rb_int2inum) (long);
+#if SIZEOF_INT < SIZEOF_LONG /* 64 bits only */
+static long (*dll_rb_fix2int) (VALUE);
+static long (*dll_rb_num2int) (VALUE);
+static unsigned long (*dll_rb_num2uint) (VALUE);
+#endif
 static VALUE (*dll_rb_lastline_get) (void);
 static void (*dll_rb_lastline_set) (VALUE);
 static void (*dll_rb_load_protect) (VALUE, int, int*);
@@ -326,7 +351,7 @@ static void (*ruby_init_stack)(VALUE*);
 static void* (*ruby_process_options)(int, char**);
 #endif
 
-#ifdef RUBY19_OR_LATER
+#if defined(RUBY19_OR_LATER) && !defined(PROTO)
 SIGNED_VALUE rb_num2long_stub(VALUE x)
 {
     return dll_rb_num2long(x);
@@ -335,6 +360,28 @@ VALUE rb_int2big_stub(SIGNED_VALUE x)
 {
     return dll_rb_int2big(x);
 }
+#if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 20 \
+	&& SIZEOF_INT < SIZEOF_LONG
+long rb_fix2int_stub(VALUE x)
+{
+    return dll_rb_fix2int(x);
+}
+long rb_num2int_stub(VALUE x)
+{
+    return dll_rb_num2int(x);
+}
+#endif
+#if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 20
+VALUE
+rb_float_new_in_heap(double d)
+{
+    return dll_rb_float_new(d);
+}
+VALUE rb_num2ulong(VALUE x)
+{
+    return (long)RSHIFT((SIGNED_VALUE)(x),1);
+}
+#endif
 #endif
 
 static HINSTANCE hinstRuby = NULL; /* Instance of ruby.dll */
@@ -351,6 +398,9 @@ static struct
     {"rb_assoc_new", (RUBY_PROC*)&dll_rb_assoc_new},
     {"rb_cFalseClass", (RUBY_PROC*)&dll_rb_cFalseClass},
     {"rb_cFixnum", (RUBY_PROC*)&dll_rb_cFixnum},
+#if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 20
+    {"rb_cFloat", (RUBY_PROC*)&dll_rb_cFloat},
+#endif
     {"rb_cNilClass", (RUBY_PROC*)&dll_rb_cNilClass},
     {"rb_cObject", (RUBY_PROC*)&dll_rb_cObject},
     {"rb_cSymbol", (RUBY_PROC*)&dll_rb_cSymbol},
@@ -377,6 +427,11 @@ static struct
     {"rb_hash_new", (RUBY_PROC*)&dll_rb_hash_new},
     {"rb_inspect", (RUBY_PROC*)&dll_rb_inspect},
     {"rb_int2inum", (RUBY_PROC*)&dll_rb_int2inum},
+#if SIZEOF_INT < SIZEOF_LONG /* 64 bits only */
+    {"rb_fix2int", (RUBY_PROC*)&dll_rb_fix2int},
+    {"rb_num2int", (RUBY_PROC*)&dll_rb_num2int},
+    {"rb_num2uint", (RUBY_PROC*)&dll_rb_num2uint},
+#endif
     {"rb_lastline_get", (RUBY_PROC*)&dll_rb_lastline_get},
     {"rb_lastline_set", (RUBY_PROC*)&dll_rb_lastline_set},
     {"rb_load_protect", (RUBY_PROC*)&dll_rb_load_protect},
@@ -420,7 +475,11 @@ static struct
 #endif
 #if defined(DYNAMIC_RUBY_VER) && DYNAMIC_RUBY_VER >= 18
     {"rb_string_value_ptr", (RUBY_PROC*)&dll_rb_string_value_ptr},
+# if DYNAMIC_RUBY_VER <= 19
     {"rb_float_new", (RUBY_PROC*)&dll_rb_float_new},
+# else
+    {"rb_float_new_in_heap", (RUBY_PROC*)&dll_rb_float_new},
+# endif
     {"rb_ary_new", (RUBY_PROC*)&dll_rb_ary_new},
     {"rb_ary_push", (RUBY_PROC*)&dll_rb_ary_push},
 #endif
@@ -1196,21 +1255,21 @@ static VALUE window_set_height(VALUE self, VALUE height)
     return height;
 }
 
-static VALUE window_width(VALUE self)
+static VALUE window_width(VALUE self UNUSED)
 {
-    win_T *win = get_win(self);
-
-    return INT2NUM(win->w_width);
+    return INT2NUM(W_WIDTH(get_win(self)));
 }
 
-static VALUE window_set_width(VALUE self, VALUE width)
+static VALUE window_set_width(VALUE self UNUSED, VALUE width)
 {
+#ifdef FEAT_VERTSPLIT
     win_T *win = get_win(self);
     win_T *savewin = curwin;
 
     curwin = win;
     win_setwidth(NUM2INT(width));
     curwin = savewin;
+#endif
     return width;
 }
 
@@ -1238,6 +1297,11 @@ static VALUE window_set_cursor(VALUE self, VALUE pos)
     return Qnil;
 }
 
+static VALUE f_nop(VALUE self UNUSED)
+{
+    return Qnil;
+}
+
 static VALUE f_p(int argc, VALUE *argv, VALUE self UNUSED)
 {
     int i;
@@ -1259,6 +1323,7 @@ static void ruby_io_init(void)
 
     rb_stdout = rb_obj_alloc(rb_cObject);
     rb_define_singleton_method(rb_stdout, "write", vim_message, 1);
+    rb_define_singleton_method(rb_stdout, "flush", f_nop, 0);
     rb_define_global_function("p", f_p, -1);
 }
 

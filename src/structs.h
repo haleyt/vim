@@ -1106,6 +1106,11 @@ typedef struct
 #define VAR_DICT    5	/* "v_dict" is used */
 #define VAR_FLOAT   6	/* "v_float" is used */
 
+/* Values for "dv_scope". */
+#define VAR_SCOPE     1	/* a:, v:, s:, etc. scope dictionaries */
+#define VAR_DEF_SCOPE 2	/* l:, g: scope dictionaries: here funcrefs are not
+			   allowed to mask existing functions */
+
 /* Values for "v_lock". */
 #define VAR_LOCKED  1	/* locked with lock(), can use unlock() */
 #define VAR_FIXED   2	/* locked forever */
@@ -1181,6 +1186,7 @@ struct dictvar_S
     int		dv_copyID;	/* ID used by deepcopy() */
     dict_T	*dv_copydict;	/* copied dict used by deepcopy() */
     char	dv_lock;	/* zero, VAR_LOCKED, VAR_FIXED */
+    char	dv_scope;	/* zero, VAR_SCOPE, VAR_DEF_SCOPE */
     dict_T	*dv_used_next;	/* next dict in used dicts list */
     dict_T	*dv_used_prev;	/* previous dict in used dicts list */
 };
@@ -1201,6 +1207,10 @@ struct dictvar_S
 typedef struct qf_info_S qf_info_T;
 #endif
 
+/*
+ * These are items normally related to a buffer.  But when using ":ownsyntax"
+ * a window may have its own instance.
+ */
 typedef struct {
 #ifdef FEAT_SYN_HL
     hashtab_T	b_keywtab;		/* syntax keywords hash table */
@@ -1290,6 +1300,10 @@ struct file_buffer
     int		b_nwindows;	/* nr of windows open on this buffer */
 
     int		b_flags;	/* various BF_ flags */
+#ifdef FEAT_AUTOCMD
+    int		b_closing;	/* buffer is being closed, don't let
+				   autocommands close it too. */
+#endif
 
     /*
      * b_ffname has the full path of the file (NULL for no name).
@@ -1597,7 +1611,7 @@ struct file_buffer
 
 #ifdef FEAT_EVAL
     dictitem_T	b_bufvar;	/* variable for "b:" Dictionary */
-    dict_T	b_vars;		/* internal variables, local to buffer */
+    dict_T	*b_vars;	/* internal variables, local to buffer */
 #endif
 
 #if defined(FEAT_BEVAL) && defined(FEAT_EVAL)
@@ -1743,7 +1757,7 @@ struct tabpage_S
     frame_T	    *(tp_snapshot[SNAP_COUNT]);  /* window layout snapshots */
 #ifdef FEAT_EVAL
     dictitem_T	    tp_winvar;	    /* variable for "t:" Dictionary */
-    dict_T	    tp_vars;	    /* internal variables, local to tab page */
+    dict_T	    *tp_vars;	    /* internal variables, local to tab page */
 #endif
 };
 
@@ -1852,6 +1866,10 @@ struct window_S
 #ifdef FEAT_WINDOWS
     win_T	*w_prev;	    /* link to previous window */
     win_T	*w_next;	    /* link to next window */
+#endif
+#ifdef FEAT_AUTOCMD
+    int		w_closing;	    /* window is being closed, don't let
+				       autocommands close it too. */
 #endif
 
     frame_T	*w_frame;	    /* frame containing this window */
@@ -2062,7 +2080,7 @@ struct window_S
 
 #ifdef FEAT_EVAL
     dictitem_T	w_winvar;	/* variable for "w:" Dictionary */
-    dict_T	w_vars;		/* internal variables, local to window */
+    dict_T	*w_vars;	/* internal variables, local to window */
 #endif
 
 #if defined(FEAT_RIGHTLEFT) && defined(FEAT_FKMAP)

@@ -98,7 +98,7 @@ ui_inchar_undo(s, len)
 #endif
 
 /*
- * ui_inchar(): low level input funcion.
+ * ui_inchar(): low level input function.
  * Get characters from the keyboard.
  * Return the number of characters that are available.
  * If "wtime" == 0 do not wait for characters.
@@ -381,6 +381,8 @@ ui_breakcheck()
 
 #if defined(FEAT_CLIPBOARD) || defined(PROTO)
 
+static void clip_copy_selection __ARGS((VimClipboard *clip));
+
 /*
  * Selection stuff using Visual mode, for cutting and pasting text to other
  * windows.
@@ -423,9 +425,10 @@ clip_init(can_use)
  * this is called whenever VIsual mode is ended.
  */
     void
-clip_update_selection()
+clip_update_selection(clip)
+    VimClipboard    *clip;
 {
-    pos_T    start, end;
+    pos_T	    start, end;
 
     /* If visual mode is only due to a redo command ("."), then ignore it */
     if (!redo_VIsual_busy && VIsual_active && (State & NORMAL))
@@ -444,17 +447,17 @@ clip_update_selection()
 	    start = curwin->w_cursor;
 	    end = VIsual;
 	}
-	if (!equalpos(clip_star.start, start)
-		|| !equalpos(clip_star.end, end)
-		|| clip_star.vmode != VIsual_mode)
+	if (!equalpos(clip->start, start)
+		|| !equalpos(clip->end, end)
+		|| clip->vmode != VIsual_mode)
 	{
-	    clip_clear_selection();
-	    clip_star.start = start;
-	    clip_star.end = end;
-	    clip_star.vmode = VIsual_mode;
-	    clip_free_selection(&clip_star);
-	    clip_own_selection(&clip_star);
-	    clip_gen_set_selection(&clip_star);
+	    clip_clear_selection(clip);
+	    clip->start = start;
+	    clip->end = end;
+	    clip->vmode = VIsual_mode;
+	    clip_free_selection(clip);
+	    clip_own_selection(clip);
+	    clip_gen_set_selection(clip);
 	}
     }
 }
@@ -475,7 +478,7 @@ clip_own_selection(cbd)
 	int was_owned = cbd->owned;
 
 	cbd->owned = (clip_gen_own_selection(cbd) == OK);
-	if (!was_owned && cbd == &clip_star)
+	if (!was_owned && (cbd == &clip_star || cbd == &clip_plus))
 	{
 	    /* May have to show a different kind of highlighting for the
 	     * selected area.  There is no specific redraw command for this,
@@ -483,13 +486,14 @@ clip_own_selection(cbd)
 	    if (cbd->owned
 		    && (get_real_state() == VISUAL
 					    || get_real_state() == SELECTMODE)
-		    && clip_isautosel()
+		    && (cbd == &clip_star ? clip_isautosel_star()
+						      : clip_isautosel_plus())
 		    && hl_attr(HLF_V) != hl_attr(HLF_VNC))
 		redraw_curbuf_later(INVERTED_ALL);
 	}
     }
 #else
-    /* Only own the clibpard when we didn't own it yet. */
+    /* Only own the clipboard when we didn't own it yet. */
     if (!cbd->owned && cbd->available)
 	cbd->owned = (clip_gen_own_selection(cbd) == OK);
 #endif
@@ -502,12 +506,15 @@ clip_lose_selection(cbd)
 #ifdef FEAT_X11
     int	    was_owned = cbd->owned;
 #endif
-    int     visual_selection = (cbd == &clip_star);
+    int     visual_selection = FALSE;
+
+    if (cbd == &clip_star || cbd == &clip_plus)
+	visual_selection = TRUE;
 
     clip_free_selection(cbd);
     cbd->owned = FALSE;
     if (visual_selection)
-	clip_clear_selection();
+	clip_clear_selection(cbd);
     clip_gen_lose_selection(cbd);
 #ifdef FEAT_X11
     if (visual_selection)
@@ -518,7 +525,8 @@ clip_lose_selection(cbd)
 	if (was_owned
 		&& (get_real_state() == VISUAL
 					    || get_real_state() == SELECTMODE)
-		&& clip_isautosel()
+		&& (cbd == &clip_star ?
+				clip_isautosel_star() : clip_isautosel_plus())
 		&& hl_attr(HLF_V) != hl_attr(HLF_VNC))
 	{
 	    update_curbuf(INVERTED_ALL);
@@ -534,18 +542,18 @@ clip_lose_selection(cbd)
 #endif
 }
 
-    void
-clip_copy_selection()
+    static void
+clip_copy_selection(clip)
+    VimClipboard	*clip;
 {
-    if (VIsual_active && (State & NORMAL) && clip_star.available)
+    if (VIsual_active && (State & NORMAL) && clip->available)
     {
-	if (clip_isautosel())
-	    clip_update_selection();
-	clip_free_selection(&clip_star);
-	clip_own_selection(&clip_star);
-	if (clip_star.owned)
-	    clip_get_selection(&clip_star);
-	clip_gen_set_selection(&clip_star);
+	clip_update_selection(clip);
+	clip_free_selection(clip);
+	clip_own_selection(clip);
+	if (clip->owned)
+	    clip_get_selection(clip);
+	clip_gen_set_selection(clip);
     }
 }
 
@@ -555,21 +563,38 @@ clip_copy_selection()
     void
 clip_auto_select()
 {
-    if (clip_isautosel())
-	clip_copy_selection();
+    if (clip_isautosel_star())
+	clip_copy_selection(&clip_star);
+    if (clip_isautosel_plus())
+	clip_copy_selection(&clip_plus);
 }
 
 /*
- * Return TRUE if automatic selection of Visual area is desired.
+ * Return TRUE if automatic selection of Visual area is desired for the *
+ * register.
  */
     int
-clip_isautosel()
+clip_isautosel_star()
 {
     return (
 #ifdef FEAT_GUI
 	    gui.in_use ? (vim_strchr(p_go, GO_ASEL) != NULL) :
 #endif
-	    clip_autoselect);
+	    clip_autoselect_star);
+}
+
+/*
+ * Return TRUE if automatic selection of Visual area is desired for the +
+ * register.
+ */
+    int
+clip_isautosel_plus()
+{
+    return (
+#ifdef FEAT_GUI
+	    gui.in_use ? (vim_strchr(p_go, GO_ASELPLUS) != NULL) :
+#endif
+	    clip_autoselect_plus);
 }
 
 
@@ -657,7 +682,7 @@ clip_start_selection(col, row, repeated_click)
     VimClipboard	*cb = &clip_star;
 
     if (cb->state == SELECT_DONE)
-	clip_clear_selection();
+	clip_clear_selection(cb);
 
     row = check_row(row);
     col = check_col(col);
@@ -749,7 +774,7 @@ clip_process_selection(button, col, row, repeated_click)
 	printf("Selection ended: (%u,%u) to (%u,%u)\n", cb->start.lnum,
 		cb->start.col, cb->end.lnum, cb->end.col);
 #endif
-	if (clip_isautosel()
+	if (clip_isautosel_star()
 		|| (
 #ifdef FEAT_GUI
 		    gui.in_use ? (vim_strchr(p_go, GO_ASELML) != NULL) :
@@ -932,16 +957,16 @@ clip_may_redraw_selection(row, col, len)
  * Called from outside to clear selected region from the display
  */
     void
-clip_clear_selection()
+clip_clear_selection(cbd)
+    VimClipboard    *cbd;
 {
-    VimClipboard    *cb = &clip_star;
 
-    if (cb->state == SELECT_CLEARED)
+    if (cbd->state == SELECT_CLEARED)
 	return;
 
-    clip_invert_area((int)cb->start.lnum, cb->start.col, (int)cb->end.lnum,
-						     cb->end.col, CLIP_CLEAR);
-    cb->state = SELECT_CLEARED;
+    clip_invert_area((int)cbd->start.lnum, cbd->start.col, (int)cbd->end.lnum,
+						     cbd->end.col, CLIP_CLEAR);
+    cbd->state = SELECT_CLEARED;
 }
 
 /*
@@ -954,7 +979,7 @@ clip_may_clear_selection(row1, row2)
     if (clip_star.state == SELECT_DONE
 	    && row2 >= clip_star.start.lnum
 	    && row1 <= clip_star.end.lnum)
-	clip_clear_selection();
+	clip_clear_selection(&clip_star);
 }
 
 /*
@@ -1429,6 +1454,21 @@ clip_gen_request_selection(cbd)
 #else
     clip_mch_request_selection(cbd);
 #endif
+}
+
+    int
+clip_gen_owner_exists(cbd)
+    VimClipboard	*cbd UNUSED;
+{
+#ifdef FEAT_XCLIPBOARD
+# ifdef FEAT_GUI_GTK
+    if (gui.in_use)
+	return clip_gtk_owner_exists(cbd);
+    else
+# endif
+	return clip_x11_owner_exists(cbd);
+#endif
+    return TRUE;
 }
 
 #endif /* FEAT_CLIPBOARD */
@@ -1917,6 +1957,7 @@ open_app_context()
 static Atom	vim_atom;	/* Vim's own special selection format */
 #ifdef FEAT_MBYTE
 static Atom	vimenc_atom;	/* Vim's extended selection format */
+static Atom	utf8_atom;
 #endif
 static Atom	compound_text_atom;
 static Atom	text_atom;
@@ -1930,6 +1971,7 @@ x11_setup_atoms(dpy)
     vim_atom	       = XInternAtom(dpy, VIM_ATOM_NAME,   False);
 #ifdef FEAT_MBYTE
     vimenc_atom	       = XInternAtom(dpy, VIMENC_ATOM_NAME,False);
+    utf8_atom	       = XInternAtom(dpy, "UTF8_STRING",   False);
 #endif
     compound_text_atom = XInternAtom(dpy, "COMPOUND_TEXT", False);
     text_atom	       = XInternAtom(dpy, "TEXT",	   False);
@@ -2074,7 +2116,11 @@ clip_x11_request_selection_cb(w, success, sel_atom, type, value, length,
     }
 #endif
 
-    else if (*type == compound_text_atom || (
+    else if (*type == compound_text_atom
+#ifdef FEAT_MBYTE
+	    || *type == utf8_atom
+#endif
+	    || (
 #ifdef FEAT_MBYTE
 		enc_dbcs != 0 &&
 #endif
@@ -2088,7 +2134,13 @@ clip_x11_request_selection_cb(w, success, sel_atom, type, value, length,
 	text_prop.encoding = *type;
 	text_prop.format = *format;
 	text_prop.nitems = len;
-	status = XmbTextPropertyToTextList(X_DISPLAY, &text_prop,
+#if defined(FEAT_MBYTE) && defined(X_HAVE_UTF8_STRING)
+	if (*type == utf8_atom)
+	    status = Xutf8TextPropertyToTextList(X_DISPLAY, &text_prop,
+							 &text_list, &n_text);
+	else
+#endif
+	    status = XmbTextPropertyToTextList(X_DISPLAY, &text_prop,
 							 &text_list, &n_text);
 	if (status != Success || n_text < 1)
 	{
@@ -2128,7 +2180,7 @@ clip_x11_request_selection(myShell, dpy, cbd)
 #else
 	    1
 #endif
-	    ; i < 5; i++)
+	    ; i < 6; i++)
     {
 	switch (i)
 	{
@@ -2136,10 +2188,23 @@ clip_x11_request_selection(myShell, dpy, cbd)
 	    case 0:  type = vimenc_atom;	break;
 #endif
 	    case 1:  type = vim_atom;		break;
-	    case 2:  type = compound_text_atom; break;
-	    case 3:  type = text_atom;		break;
+#ifdef FEAT_MBYTE
+	    case 2:  type = utf8_atom;		break;
+#endif
+	    case 3:  type = compound_text_atom; break;
+	    case 4:  type = text_atom;		break;
 	    default: type = XA_STRING;
 	}
+#ifdef FEAT_MBYTE
+	if (type == utf8_atom
+# if defined(X_HAVE_UTF8_STRING)
+		&& !enc_utf8
+# endif
+		)
+	    /* Only request utf-8 when 'encoding' is utf8 and
+	     * Xutf8TextPropertyToTextList is available. */
+	    continue;
+#endif
 	success = MAYBE;
 	XtGetSelectionValue(myShell, cbd->sel_atom, type,
 	    clip_x11_request_selection_cb, (XtPointer)&success, CurrentTime);
@@ -2230,18 +2295,23 @@ clip_x11_convert_selection_cb(w, sel_atom, target, type, value, length, format)
     {
 	Atom *array;
 
-	if ((array = (Atom *)XtMalloc((unsigned)(sizeof(Atom) * 6))) == NULL)
+	if ((array = (Atom *)XtMalloc((unsigned)(sizeof(Atom) * 7))) == NULL)
 	    return False;
 	*value = (XtPointer)array;
 	i = 0;
-	array[i++] = XA_STRING;
 	array[i++] = targets_atom;
 #ifdef FEAT_MBYTE
 	array[i++] = vimenc_atom;
 #endif
 	array[i++] = vim_atom;
+#ifdef FEAT_MBYTE
+	if (enc_utf8)
+	    array[i++] = utf8_atom;
+#endif
+	array[i++] = XA_STRING;
 	array[i++] = text_atom;
 	array[i++] = compound_text_atom;
+
 	*type = XA_ATOM;
 	/* This used to be: *format = sizeof(Atom) * 8; but that caused
 	 * crashes on 64 bit machines. (Peter Derr) */
@@ -2253,6 +2323,7 @@ clip_x11_convert_selection_cb(w, sel_atom, target, type, value, length, format)
     if (       *target != XA_STRING
 #ifdef FEAT_MBYTE
 	    && *target != vimenc_atom
+	    && *target != utf8_atom
 #endif
 	    && *target != vim_atom
 	    && *target != text_atom
@@ -2282,13 +2353,16 @@ clip_x11_convert_selection_cb(w, sel_atom, target, type, value, length, format)
 	return False;
     }
 
-    if (*target == XA_STRING)
+    if (*target == XA_STRING
+#ifdef FEAT_MBYTE
+	    || (*target == utf8_atom && enc_utf8)
+#endif
+	    )
     {
 	mch_memmove(result, string, (size_t)(*length));
-	*type = XA_STRING;
+	*type = *target;
     }
-    else if (*target == compound_text_atom
-	    || *target == text_atom)
+    else if (*target == compound_text_atom || *target == text_atom)
     {
 	XTextProperty	text_prop;
 	char		*string_nt = (char *)alloc((unsigned)*length + 1);
@@ -2344,7 +2418,8 @@ clip_x11_lose_selection(myShell, cbd)
     Widget		myShell;
     VimClipboard	*cbd;
 {
-    XtDisownSelection(myShell, cbd->sel_atom, CurrentTime);
+    XtDisownSelection(myShell, cbd->sel_atom,
+				XtLastTimestampProcessed(XtDisplay(myShell)));
 }
 
     int
@@ -2385,6 +2460,13 @@ clip_x11_own_selection(myShell, cbd)
 clip_x11_set_selection(cbd)
     VimClipboard *cbd UNUSED;
 {
+}
+
+    int
+clip_x11_owner_exists(cbd)
+    VimClipboard	*cbd;
+{
+    return XGetSelectionOwner(X_DISPLAY, cbd->sel_atom) != None;
 }
 #endif
 
@@ -3084,7 +3166,7 @@ vcol2col(wp, lnum, vcol)
     char_u	*start;
 
     start = ptr = ml_get_buf(wp->w_buffer, lnum, FALSE);
-    while (count <= vcol && *ptr != NUL)
+    while (count < vcol && *ptr != NUL)
     {
 	count += win_lbr_chartabsize(wp, ptr, count, NULL);
 	mb_ptr_adv(ptr);

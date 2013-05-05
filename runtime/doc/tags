@@ -237,6 +237,7 @@ $VIMRUNTIME	starting.txt	/*$VIMRUNTIME*
 'fileencodings'	options.txt	/*'fileencodings'*
 'fileformat'	options.txt	/*'fileformat'*
 'fileformats'	options.txt	/*'fileformats'*
+'fileignorecase'	options.txt	/*'fileignorecase'*
 'filetype'	options.txt	/*'filetype'*
 'fillchars'	options.txt	/*'fillchars'*
 'fk'	options.txt	/*'fk'*
@@ -281,6 +282,7 @@ $VIMRUNTIME	starting.txt	/*$VIMRUNTIME*
 'go-F'	options.txt	/*'go-F'*
 'go-L'	options.txt	/*'go-L'*
 'go-M'	options.txt	/*'go-M'*
+'go-P'	options.txt	/*'go-P'*
 'go-R'	options.txt	/*'go-R'*
 'go-T'	options.txt	/*'go-T'*
 'go-a'	options.txt	/*'go-a'*
@@ -522,6 +524,7 @@ $VIMRUNTIME	starting.txt	/*$VIMRUNTIME*
 'noexpandtab'	options.txt	/*'noexpandtab'*
 'noexrc'	options.txt	/*'noexrc'*
 'nofen'	options.txt	/*'nofen'*
+'nofileignorecase'	options.txt	/*'nofileignorecase'*
 'nofk'	options.txt	/*'nofk'*
 'nofkmap'	options.txt	/*'nofkmap'*
 'nofoldenable'	options.txt	/*'nofoldenable'*
@@ -662,7 +665,8 @@ $VIMRUNTIME	starting.txt	/*$VIMRUNTIME*
 'nowfh'	options.txt	/*'nowfh'*
 'nowfw'	options.txt	/*'nowfw'*
 'nowic'	options.txt	/*'nowic'*
-'nowildignorecase	options.txt	/*'nowildignorecase*
+'nowic'	options.txt	/*'nowic'*
+'nowildignorecase'	options.txt	/*'nowildignorecase'*
 'nowildmenu'	options.txt	/*'nowildmenu'*
 'nowinfixheight'	options.txt	/*'nowinfixheight'*
 'nowinfixwidth'	options.txt	/*'nowinfixwidth'*
@@ -783,6 +787,7 @@ $VIMRUNTIME	starting.txt	/*$VIMRUNTIME*
 'shellslash'	options.txt	/*'shellslash'*
 'shelltemp'	options.txt	/*'shelltemp'*
 'shelltype'	options.txt	/*'shelltype'*
+'shellxescape'	options.txt	/*'shellxescape'*
 'shellxquote'	options.txt	/*'shellxquote'*
 'shiftround'	options.txt	/*'shiftround'*
 'shiftwidth'	options.txt	/*'shiftwidth'*
@@ -852,6 +857,7 @@ $VIMRUNTIME	starting.txt	/*$VIMRUNTIME*
 'swf'	options.txt	/*'swf'*
 'switchbuf'	options.txt	/*'switchbuf'*
 'sws'	options.txt	/*'sws'*
+'sxe'	options.txt	/*'sxe'*
 'sxq'	options.txt	/*'sxq'*
 'syn'	options.txt	/*'syn'*
 'synmaxcol'	options.txt	/*'synmaxcol'*
@@ -1069,11 +1075,12 @@ $VIMRUNTIME	starting.txt	/*$VIMRUNTIME*
 'whichwrap'	options.txt	/*'whichwrap'*
 'wi'	options.txt	/*'wi'*
 'wic'	options.txt	/*'wic'*
+'wic'	options.txt	/*'wic'*
 'wig'	options.txt	/*'wig'*
 'wildchar'	options.txt	/*'wildchar'*
 'wildcharm'	options.txt	/*'wildcharm'*
 'wildignore'	options.txt	/*'wildignore'*
-'wildignorecase	options.txt	/*'wildignorecase*
+'wildignorecase'	options.txt	/*'wildignorecase'*
 'wildmenu'	options.txt	/*'wildmenu'*
 'wildmode'	options.txt	/*'wildmode'*
 'wildoptions'	options.txt	/*'wildoptions'*
@@ -3204,6 +3211,7 @@ $VIMRUNTIME	starting.txt	/*$VIMRUNTIME*
 <line1>	map.txt	/*<line1>*
 <line2>	map.txt	/*<line2>*
 <lt>	intro.txt	/*<lt>*
+<nomodeline>	autocmd.txt	/*<nomodeline>*
 <q-args>	map.txt	/*<q-args>*
 <reg>	map.txt	/*<reg>*
 <register>	map.txt	/*<register>*
@@ -4230,7 +4238,11 @@ E84	windows.txt	/*E84*
 E846	options.txt	/*E846*
 E85	options.txt	/*E85*
 E850	change.txt	/*E850*
+E858	eval.txt	/*E858*
+E859	eval.txt	/*E859*
 E86	windows.txt	/*E86*
+E860	eval.txt	/*E860*
+E861	eval.txt	/*E861*
 E87	windows.txt	/*E87*
 E88	windows.txt	/*E88*
 E89	message.txt	/*E89*
@@ -4452,6 +4464,8 @@ TabLeave	autocmd.txt	/*TabLeave*
 Tcl	if_tcl.txt	/*Tcl*
 TermChanged	autocmd.txt	/*TermChanged*
 TermResponse	autocmd.txt	/*TermResponse*
+TextChanged	autocmd.txt	/*TextChanged*
+TextChangedI	autocmd.txt	/*TextChangedI*
 Transact-SQL	ft_sql.txt	/*Transact-SQL*
 U	undo.txt	/*U*
 UTF-8	mbyte.txt	/*UTF-8*
@@ -4970,6 +4984,7 @@ cino-g	indent.txt	/*cino-g*
 cino-h	indent.txt	/*cino-h*
 cino-i	indent.txt	/*cino-i*
 cino-j	indent.txt	/*cino-j*
+cino-k	indent.txt	/*cino-k*
 cino-l	indent.txt	/*cino-l*
 cino-m	indent.txt	/*cino-m*
 cino-n	indent.txt	/*cino-n*
@@ -4985,6 +5000,13 @@ clearmatches()	eval.txt	/*clearmatches()*
 client-server	remote.txt	/*client-server*
 clientserver	remote.txt	/*clientserver*
 clipboard	gui.txt	/*clipboard*
+clipboard-autoselect	options.txt	/*clipboard-autoselect*
+clipboard-autoselectml	options.txt	/*clipboard-autoselectml*
+clipboard-autoselectplus	options.txt	/*clipboard-autoselectplus*
+clipboard-exclude	options.txt	/*clipboard-exclude*
+clipboard-html	options.txt	/*clipboard-html*
+clipboard-unnamed	options.txt	/*clipboard-unnamed*
+clipboard-unnamedplus	options.txt	/*clipboard-unnamedplus*
 cmdarg-variable	eval.txt	/*cmdarg-variable*
 cmdbang-variable	eval.txt	/*cmdbang-variable*
 cmdline-arguments	vi_diff.txt	/*cmdline-arguments*
@@ -5891,6 +5913,7 @@ gF	editing.txt	/*gF*
 gH	visual.txt	/*gH*
 gI	insert.txt	/*gI*
 gJ	change.txt	/*gJ*
+gN	visual.txt	/*gN*
 gP	change.txt	/*gP*
 gQ	intro.txt	/*gQ*
 gR	change.txt	/*gR*
@@ -5974,6 +5997,7 @@ glvs-options	pi_getscript.txt	/*glvs-options*
 glvs-plugins	pi_getscript.txt	/*glvs-plugins*
 glvs-usage	pi_getscript.txt	/*glvs-usage*
 gm	motion.txt	/*gm*
+gn	visual.txt	/*gn*
 gnat#Insert_Tags_Header()	ft_ada.txt	/*gnat#Insert_Tags_Header()*
 gnat#New()	ft_ada.txt	/*gnat#New()*
 gnat-xref	ft_ada.txt	/*gnat-xref*
@@ -6057,6 +6081,7 @@ gui_w16.txt	gui_w16.txt	/*gui_w16.txt*
 gui_w32.txt	gui_w32.txt	/*gui_w32.txt*
 gui_x11.txt	gui_x11.txt	/*gui_x11.txt*
 guifontwide_gtk2	options.txt	/*guifontwide_gtk2*
+guifontwide_win_mbyte	options.txt	/*guifontwide_win_mbyte*
 guioptions_a	options.txt	/*guioptions_a*
 guu	change.txt	/*guu*
 gv	visual.txt	/*gv*
@@ -6079,6 +6104,7 @@ hangul	hangulin.txt	/*hangul*
 hangulin.txt	hangulin.txt	/*hangulin.txt*
 has()	eval.txt	/*has()*
 has-patch	eval.txt	/*has-patch*
+has-python	if_pyth.txt	/*has-python*
 has_key()	eval.txt	/*has_key()*
 haskell.vim	syntax.txt	/*haskell.vim*
 haslocaldir()	eval.txt	/*haslocaldir()*
@@ -6513,9 +6539,13 @@ lpc.vim	syntax.txt	/*lpc.vim*
 lua	if_lua.txt	/*lua*
 lua-buffer	if_lua.txt	/*lua-buffer*
 lua-commands	if_lua.txt	/*lua-commands*
+lua-dict	if_lua.txt	/*lua-dict*
+lua-list	if_lua.txt	/*lua-list*
+lua-luaeval	if_lua.txt	/*lua-luaeval*
 lua-vim	if_lua.txt	/*lua-vim*
 lua-window	if_lua.txt	/*lua-window*
 lua.vim	syntax.txt	/*lua.vim*
+luaeval()	eval.txt	/*luaeval()*
 m	motion.txt	/*m*
 m'	motion.txt	/*m'*
 m[	motion.txt	/*m[*
@@ -6685,6 +6715,7 @@ mzscheme-buffer	if_mzsch.txt	/*mzscheme-buffer*
 mzscheme-commands	if_mzsch.txt	/*mzscheme-commands*
 mzscheme-dynamic	if_mzsch.txt	/*mzscheme-dynamic*
 mzscheme-examples	if_mzsch.txt	/*mzscheme-examples*
+mzscheme-funcref	if_mzsch.txt	/*mzscheme-funcref*
 mzscheme-mzeval	if_mzsch.txt	/*mzscheme-mzeval*
 mzscheme-sandbox	if_mzsch.txt	/*mzscheme-sandbox*
 mzscheme-threads	if_mzsch.txt	/*mzscheme-threads*
@@ -7162,7 +7193,10 @@ pterm-mouse	options.txt	/*pterm-mouse*
 pumvisible()	eval.txt	/*pumvisible()*
 put	change.txt	/*put*
 put-Visual-mode	change.txt	/*put-Visual-mode*
+py3eval()	eval.txt	/*py3eval()*
+pyeval()	eval.txt	/*pyeval()*
 python	if_pyth.txt	/*python*
+python-bindeval	if_pyth.txt	/*python-bindeval*
 python-buffer	if_pyth.txt	/*python-buffer*
 python-buffers	if_pyth.txt	/*python-buffers*
 python-command	if_pyth.txt	/*python-command*
@@ -7174,8 +7208,11 @@ python-eval	if_pyth.txt	/*python-eval*
 python-examples	if_pyth.txt	/*python-examples*
 python-input	if_pyth.txt	/*python-input*
 python-output	if_pyth.txt	/*python-output*
+python-pyeval	if_pyth.txt	/*python-pyeval*
 python-range	if_pyth.txt	/*python-range*
+python-vars	if_pyth.txt	/*python-vars*
 python-vim	if_pyth.txt	/*python-vim*
+python-vvars	if_pyth.txt	/*python-vvars*
 python-window	if_pyth.txt	/*python-window*
 python-windows	if_pyth.txt	/*python-windows*
 python.vim	syntax.txt	/*python.vim*
@@ -7349,6 +7386,8 @@ save-file	editing.txt	/*save-file*
 save-settings	starting.txt	/*save-settings*
 scheme.vim	syntax.txt	/*scheme.vim*
 scp	pi_netrw.txt	/*scp*
+screencol()	eval.txt	/*screencol()*
+screenrow()	eval.txt	/*screenrow()*
 script	usr_41.txt	/*script*
 script-here	if_perl.txt	/*script-here*
 script-local	map.txt	/*script-local*
@@ -7413,12 +7452,15 @@ setuid	change.txt	/*setuid*
 setwinvar()	eval.txt	/*setwinvar()*
 sftp	pi_netrw.txt	/*sftp*
 sgml.vim	syntax.txt	/*sgml.vim*
+sgr-mouse	options.txt	/*sgr-mouse*
 sh.vim	syntax.txt	/*sh.vim*
+sha256()	eval.txt	/*sha256()*
 shell-window	tips.txt	/*shell-window*
 shell_error-variable	eval.txt	/*shell_error-variable*
 shellescape()	eval.txt	/*shellescape()*
 shift	intro.txt	/*shift*
 shift-left-right	change.txt	/*shift-left-right*
+shiftwidth()	eval.txt	/*shiftwidth()*
 short-name-changed	version4.txt	/*short-name-changed*
 showing-menus	gui.txt	/*showing-menus*
 sign-commands	sign.txt	/*sign-commands*
@@ -8021,6 +8063,7 @@ unix	os_unix.txt	/*unix*
 unlisted-buffer	windows.txt	/*unlisted-buffer*
 up-down-motions	motion.txt	/*up-down-motions*
 uppercase	change.txt	/*uppercase*
+urxvt-mouse	options.txt	/*urxvt-mouse*
 use-cpo-save	usr_41.txt	/*use-cpo-save*
 use-visual-cmds	version4.txt	/*use-visual-cmds*
 useful-mappings	tips.txt	/*useful-mappings*
@@ -8196,11 +8239,13 @@ v_d	change.txt	/*v_d*
 v_g?	change.txt	/*v_g?*
 v_gF	editing.txt	/*v_gF*
 v_gJ	change.txt	/*v_gJ*
+v_gN	visual.txt	/*v_gN*
 v_gV	visual.txt	/*v_gV*
 v_g]	tagsrch.txt	/*v_g]*
 v_g_CTRL-G	editing.txt	/*v_g_CTRL-G*
 v_g_CTRL-]	tagsrch.txt	/*v_g_CTRL-]*
 v_gf	editing.txt	/*v_gf*
+v_gn	visual.txt	/*v_gn*
 v_gq	change.txt	/*v_gq*
 v_gv	visual.txt	/*v_gv*
 v_gw	change.txt	/*v_gw*
@@ -8357,6 +8402,7 @@ white-space	pattern.txt	/*white-space*
 whitespace	pattern.txt	/*whitespace*
 wildcard	editing.txt	/*wildcard*
 wildcards	editing.txt	/*wildcards*
+wildmenumode()	eval.txt	/*wildmenumode()*
 win16-!start	gui_w16.txt	/*win16-!start*
 win16-clipboard	gui_w16.txt	/*win16-clipboard*
 win16-colors	gui_w16.txt	/*win16-colors*

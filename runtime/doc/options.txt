@@ -1437,6 +1437,7 @@ A jump table for the options with a short description can be found at |Q_op|.
 	This option is a list of comma separated names.
 	These names are recognized:
 
+						*clipboard-unnamed*
 	unnamed		When included, Vim will use the clipboard register '*'
 			for all yank, delete, change and put operations which
 			would normally go to the unnamed register.  When a
@@ -1446,15 +1447,17 @@ A jump table for the options with a short description can be found at |Q_op|.
 			explicitly accessed using the "* notation.  Also see
 			|gui-clipboard|.
 
+						*clipboard-unnamedplus*
 	unnamedplus	A variant of "unnamed" flag which uses the clipboard
 			register '+' (|quoteplus|) instead of register '*' for
 			all operations except yank.  Yank shall copy the text
 			into register '+' and also into '*' when "unnamed" is
 			included.
-			Only available with the |+x11| feature.
+			Only available with the |+X11| feature.
 			Availability can be checked with: >
 				if has('unnamedplus')
 <
+						*clipboard-autoselect*
 	autoselect	Works like the 'a' flag in 'guioptions': If present,
 			then whenever Visual mode is started, or the Visual
 			area extended, Vim tries to become the owner of the
@@ -1466,9 +1469,16 @@ A jump table for the options with a short description can be found at |Q_op|.
 			"autoselect" flag is used.
 			Also applies to the modeless selection.
 
+						*clipboard-autoselectplus*
+	autoselectplus  Like "autoselect" but using the + register instead of
+			the * register.  Compare to the 'P' flag in
+			'guioptions'.
+
+						*clipboard-autoselectml*
 	autoselectml	Like "autoselect", but for the modeless selection
 			only.  Compare to the 'A' flag in 'guioptions'.
 
+						*clipboard-html*
 	html		When the clipboard contains HTML, use this when
 			pasting.  When putting text on the clipboard, mark it
 			as HTML.  This works to copy rendered HTML from
@@ -1479,6 +1489,7 @@ A jump table for the options with a short description can be found at |Q_op|.
 			Only supported for GTK version 2 and later.
 			Only available with the |+multi_byte| feature.
 
+						*clipboard-exclude*
 	exclude:{pattern}
 			Defines a pattern that is matched against the name of
 			the terminal 'term'.  If there is a match, no
@@ -2884,6 +2895,14 @@ A jump table for the options with a short description can be found at |Q_op|.
 	NOTE: This option is set to the Vi default value when 'compatible' is
 	set and to the Vim default value when 'compatible' is reset.
 
+			*'fileignorecase'* *'wic'* *'nofileignorecase'* *'nowic'*
+'fileignorecase' 'wic'	boolean	(default on for systems where case in file
+				 names is normally ignored.
+			global
+			{not in Vi}
+	When set case is ignored when using file names and directories.
+	See 'wildignorecase' for only ignoring case when doing completion.
+
 					*'filetype'* *'ft'*
 'filetype' 'ft'		string (default: "")
 			local to buffer
@@ -3507,6 +3526,10 @@ A jump table for the options with a short description can be found at |Q_op|.
 	to set 'guifontwide' at all unless you want to override the choice
 	made by Pango/Xft.
 
+	Windows +multibyte only:		*guifontwide_win_mbyte*
+
+	If set and vaild, 'guifontwide' is used for IME instead of 'guifont'.
+
 						*'guiheadroom'* *'ghr'*
 'guiheadroom' 'ghr'	number	(default 50)
 			global
@@ -3547,6 +3570,9 @@ A jump table for the options with a short description can be found at |Q_op|.
 		windowing system's global selection unless explicitly told to
 		by a yank or delete operation for the "* register.
 		The same applies to the modeless selection.
+								*'go-P'*
+	  'P'	Like autoselect but using the "+ register instead of the "*
+	  	register.
 								*'go-A'*
 	  'A'	Autoselect for the modeless selection.  Like 'a', but only
 		applies to the modeless selection.
@@ -5880,16 +5906,21 @@ A jump table for the options with a short description can be found at |Q_op|.
 	security reasons.
 
 						*'shellcmdflag'* *'shcf'*
-'shellcmdflag' 'shcf'	string	(default: "-c", MS-DOS and Win32, when 'shell'
-					does not contain "sh" somewhere: "/c")
+'shellcmdflag' 'shcf'	string	(default: "-c";
+				 Win32, when 'shell' is cmd.exe: "/s /c";
+				 MS-DOS and Win32, when 'shell' neither is
+				 cmd.exe nor contains "sh" somewhere: "/c")
 			global
 			{not in Vi}
 	Flag passed to the shell to execute "!" and ":!" commands; e.g.,
 	"bash.exe -c ls" or "command.com /c dir".  For the MS-DOS-like
 	systems, the default is set according to the value of 'shell', to
 	reduce the need to set this option by the user.  It's not used for
-	OS/2 (EMX figures this out itself).  See |option-backslash| about
-	including spaces and backslashes.  See |dos-shell|.
+	OS/2 (EMX figures this out itself).
+	On Unix it can have more than one flag.  Each white space separated
+	part is passed as an argument to the shell command.
+	See |option-backslash| about including spaces and backslashes.
+	Also see |dos-shell| for MS-DOS and MS-Windows.
 	This option cannot be set from a |modeline| or in the |sandbox|, for
 	security reasons.
 
@@ -5910,9 +5941,10 @@ A jump table for the options with a short description can be found at |Q_op|.
 	For Unix the default it "| tee".  The stdout of the compiler is saved
 	in a file and echoed to the screen.  If the 'shell' option is "csh" or
 	"tcsh" after initializations, the default becomes "|& tee".  If the
-	'shell' option is "sh", "ksh", "zsh" or "bash" the default becomes
-	"2>&1| tee".  This means that stderr is also included.  Before using
-	the 'shell' option a path is removed, thus "/bin/sh" uses "sh".
+	'shell' option is "sh", "ksh", "mksh", "pdksh", "zsh" or "bash" the
+	default becomes "2>&1| tee".  This means that stderr is also included.
+	Before using the 'shell' option a path is removed, thus "/bin/sh" uses
+	"sh".
 	The initialization of this option is done after reading the ".vimrc"
 	and the other initializations, so that when the 'shell' option is set
 	there, the 'shellpipe' option changes automatically, unless it was
@@ -6017,6 +6049,7 @@ A jump table for the options with a short description can be found at |Q_op|.
 
 						*'shellxquote'* *'sxq'*
 'shellxquote' 'sxq'	string	(default: "";
+					for Win32, when 'shell' is cmd.exe: "("
 					for Win32, when 'shell' contains "sh"
 					somewhere: "\""
 					for Unix, when using system(): "\"")
@@ -6026,13 +6059,27 @@ A jump table for the options with a short description can be found at |Q_op|.
 	the "!" and ":!" commands.  Includes the redirection.  See
 	'shellquote' to exclude the redirection.  It's probably not useful
 	to set both options.
-	This is an empty string by default.  Known to be useful for
-	third-party shells when using the Win32 version, such as the MKS Korn
-	Shell or bash, where it should be "\"".  The default is adjusted
-	according the value of 'shell', to reduce the need to set this option
-	by the user.  See |dos-shell|.
+	When the value is '(' then ')' is appended. When the value is '"('
+	then ')"' is appended.
+	When the value is '(' then also see 'shellxescape'.
+	This is an empty string by default on most systems, but is known to be
+	useful for on Win32 version, either for cmd.exe which automatically
+	strips off the first and last quote on a command, or 3rd-party shells
+	such as the MKS Korn Shell or bash, where it should be "\"".  The
+	default is adjusted according the value of 'shell', to reduce the need
+	to set this option by the user.  See |dos-shell|.
 	This option cannot be set from a |modeline| or in the |sandbox|, for
 	security reasons.
+
+						*'shellxescape'* *'sxe'*
+'shellxescape' 'sxe'	string	(default: "";
+				 for MS-DOS and MS-Windows: "\"&|<>()@^")
+			global
+			{not in Vi}
+	When 'shellxquote' is set to "(" then the characters listed in this
+	option will be escaped with a '^' character.  This makes it possible
+	to execute most external commands with cmd.exe.
+
 
 			*'shiftround'* *'sr'* *'noshiftround'* *'nosr'*
 'shiftround' 'sr'	boolean	(default off)
@@ -7348,6 +7395,12 @@ A jump table for the options with a short description can be found at |Q_op|.
 	   jsbterm	JSB term mouse handling.
 							*pterm-mouse*
 	   pterm	QNX pterm mouse handling.
+							*urxvt-mouse*
+	   urxvt	Mouse handling for the urxvt (rxvt-unicode) terminal.
+							*sgr-mouse*
+	   sgr		Mouse handling for the terminal that emits SGR-styled
+			mouse reporting. Works with xterm version 277 or
+			later.
 
 	The mouse handling must be enabled at compile time |+mouse_xterm|
 	|+mouse_dec| |+mouse_netterm|.
@@ -7360,6 +7413,7 @@ A jump table for the options with a short description can be found at |Q_op|.
 	or "xterm2" already.  The main use of this option is to set it to
 	"xterm", when the terminal name doesn't start with "xterm", but it can
 	handle xterm mouse codes.
+	The "sgr" value will be set if the xterm version is 277 or later.
 	The "xterm2" value will be set if the xterm version is reported to be
 	95 or higher.  This only works when compiled with the |+termresponse|
 	feature and if |t_RV| is set to the escape sequence to request the
@@ -7786,12 +7840,12 @@ A jump table for the options with a short description can be found at |Q_op|.
 	uses another default.
 
 
-			*'wildignorecase* *'wic'* *'nowildignorecase* *'nowic'*
+			*'wildignorecase'* *'wic'* *'nowildignorecase'* *'nowic'*
 'wildignorecase' 'wic'	boolean	(default off)
 			global
 			{not in Vi}
 	When set case is ignored when completing file names and directories.
-	Has no effect on systems where file name case is generally ignored.
+	Has no effect when 'fileignorecase' is set.
 	Does not apply when the shell is used to expand wildcards, which
 	happens when there are special characters.
 

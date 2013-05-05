@@ -29,7 +29,10 @@ SCRIPTS =	test3.out test4.out test5.out test6.out test7.out \
 		test42.out test52.out test65.out test66.out test67.out \
 		test68.out test69.out test71.out test72.out test73.out \
 		test74.out test75.out test76.out test77.out test78.out \
-		test79.out test80.out test81.out test82.out test83.out
+		test79.out test80.out test81.out test82.out test83.out \
+		test84.out test85.out test86.out test87.out test88.out \
+		test89.out test90.out test91.out test92.out test93.out \
+		test94.out
 
 SCRIPTS32 =	test50.out test70.out
 
@@ -51,7 +54,8 @@ win32:	fixff $(SCRIPTS16) $(SCRIPTS) $(SCRIPTS32)
 
 fixff:
 	-$(VIMPROG) -u dos.vim --noplugin "+argdo set ff=dos|upd" +q *.in *.ok
-	-$(VIMPROG) -u dos.vim --noplugin "+argdo set ff=unix|upd" +q dotest.in
+	-$(VIMPROG) -u dos.vim --noplugin "+argdo set ff=unix|upd" +q \
+		dotest.in test60.ok test71.ok test74.ok
 
 clean:
 	-del *.out
@@ -60,6 +64,7 @@ clean:
 	-if exist tiny.vim del tiny.vim
 	-if exist mbyte.vim del mbyte.vim
 	-if exist mzscheme.vim del mzscheme.vim
+	-if exist lua.vim del lua.vim
 	-del X*
 	-if exist viminfo del viminfo
 

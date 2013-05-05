@@ -1,6 +1,6 @@
 " Vim plugin for showing matching parens
 " Maintainer:  Bram Moolenaar <Bram@vim.org>
-" Last Change: 2008 Sep 03
+" Last Change: 2013 Mar 19
 
 " Exit quickly when:
 " - this plugin was already loaded (or disabled)
@@ -14,6 +14,9 @@ let g:loaded_matchparen = 1
 augroup matchparen
   " Replace all matchparen autocommands
   autocmd! CursorMoved,CursorMovedI,WinEnter * call s:Highlight_Matching_Pair()
+  if exists('##TextChanged')
+    autocmd! TextChanged,TextChangedI * call s:Highlight_Matching_Pair()
+  endif
 augroup END
 
 " Skip the rest if it was already done.
@@ -82,8 +85,9 @@ function! s:Highlight_Matching_Pair()
   endif
 
   " When not in a string or comment ignore matches inside them.
+  " We match "escape" for special items, such as lispEscapeSpecial.
   let s_skip ='synIDattr(synID(line("."), col("."), 0), "name") ' .
-	\ '=~?  "string\\|character\\|singlequote\\|comment"'
+	\ '=~?  "string\\|character\\|singlequote\\|escape\\|comment"'
   execute 'if' s_skip '| let s_skip = 0 | endif'
 
   " Limit the search to lines visible in the window.

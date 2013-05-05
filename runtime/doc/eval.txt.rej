@@ -1,0 +1,36 @@
+*** runtime/doc/eval.txt	2012-12-05 16:10:21.000000000 +0100
+--- eval.txt	2013-01-23 17:00:52.000000000 +0100
+***************
+*** 2282,2295 ****
+  		redo it is the number of the redone change.  After undo it is
+  		one less than the number of the undone change.
+  
+! char2nr({expr})						*char2nr()*
+  		Return number value of the first char in {expr}.  Examples: >
+  			char2nr(" ")		returns 32
+  			char2nr("ABC")		returns 65
+! <		The current 'encoding' is used.  Example for "utf-8": >
+  			char2nr("á")		returns 225
+  			char2nr("á"[0])		returns 195
+! <		|nr2char()| does the opposite.
+  
+  cindent({lnum})						*cindent()*
+  		Get the amount of indent for line {lnum} according the C
+--- 2294,2310 ----
+  		redo it is the number of the redone change.  After undo it is
+  		one less than the number of the undone change.
+  
+! char2nr({expr}[, {utf8}])					*char2nr()*
+  		Return number value of the first char in {expr}.  Examples: >
+  			char2nr(" ")		returns 32
+  			char2nr("ABC")		returns 65
+! <		When {utf8} is omitted or zero, the current 'encoding' is used.
+! 		Example for "utf-8": >
+  			char2nr("á")		returns 225
+  			char2nr("á"[0])		returns 195
+! <		With {utf8} set to 1, always treat as utf-8 characters.
+! 		A combining character is a separate character.
+! 		|nr2char()| does the opposite.
+  
+  cindent({lnum})						*cindent()*
+  		Get the amount of indent for line {lnum} according the C

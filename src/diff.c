@@ -615,11 +615,13 @@ diff_redraw(dofold)
 #endif
 	    /* A change may have made filler lines invalid, need to take care
 	     * of that for other windows. */
-	    if (wp != curwin && wp->w_topfill > 0)
+	    n = diff_check(wp, wp->w_topline);
+	    if ((wp != curwin && wp->w_topfill > 0) || n > 0)
 	    {
-		n = diff_check(wp, wp->w_topline);
 		if (wp->w_topfill > n)
 		    wp->w_topfill = (n < 0 ? 0 : n);
+		else if (n > 0 && n > wp->w_topfill)
+		    wp->w_topfill = n;
 	    }
 	}
 }
@@ -782,6 +784,15 @@ ex_diffupdate(eap)
 #endif
 	goto theend;
     }
+
+    /* :diffupdate! */
+    if (eap != NULL && eap->forceit)
+	for (idx_new = idx_orig; idx_new < DB_COUNT; ++idx_new)
+	{
+	    buf = curtab->tp_diffbuf[idx_new];
+	    if (buf_valid(buf))
+		buf_check_timestamp(buf, FALSE);
+	}
 
     /* Write the first buffer to a tempfile. */
     buf = curtab->tp_diffbuf[idx_orig];
@@ -2141,7 +2152,7 @@ ex_diffgetput(eap)
 	    i = atol((char *)eap->arg);
 	else
 	{
-	    i = buflist_findpat(eap->arg, p, FALSE, TRUE);
+	    i = buflist_findpat(eap->arg, p, FALSE, TRUE, FALSE);
 	    if (i < 0)
 		return;		/* error message already given */
 	}

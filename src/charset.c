@@ -284,7 +284,12 @@ buf_init_chartab(buf, global)
 		}
 		++c;
 	    }
+
+	    c = *p;
 	    p = skip_to_option_part(p);
+	    if (c == ',' && *p == NUL)
+		/* Trailing comma is not allowed. */
+		return FAIL;
 	}
     }
     chartab_initialized = TRUE;
@@ -905,6 +910,14 @@ vim_isIDc(c)
 vim_iswordc(c)
     int c;
 {
+    return vim_iswordc_buf(c, curbuf);
+}
+
+    int
+vim_iswordc_buf(c, buf)
+    int		c;
+    buf_T	*buf;
+{
 #ifdef FEAT_MBYTE
     if (c >= 0x100)
     {
@@ -914,7 +927,7 @@ vim_iswordc(c)
 	    return utf_class(c) >= 2;
     }
 #endif
-    return (c > 0 && c < 0x100 && GET_CHARTAB(curbuf, c) != 0);
+    return (c > 0 && c < 0x100 && GET_CHARTAB(buf, c) != 0);
 }
 
 /*
@@ -931,19 +944,17 @@ vim_iswordp(p)
     return GET_CHARTAB(curbuf, *p) != 0;
 }
 
-#if defined(FEAT_SYN_HL) || defined(PROTO)
     int
-vim_iswordc_buf(p, buf)
+vim_iswordp_buf(p, buf)
     char_u	*p;
     buf_T	*buf;
 {
-# ifdef FEAT_MBYTE
+#ifdef FEAT_MBYTE
     if (has_mbyte && MB_BYTE2LEN(*p) > 1)
 	return mb_get_class(p) >= 2;
-# endif
+#endif
     return (GET_CHARTAB(buf, *p) != 0);
 }
-#endif
 
 /*
  * return TRUE if 'c' is a valid file-name character
@@ -1602,10 +1613,9 @@ vim_isxdigit(c)
 #define LATIN1LOWER 'l'
 #define LATIN1UPPER 'U'
 
-/*                                                                 !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]%_'abcdefghijklmnopqrstuvwxyz{|}~                                  ΅Ά£¤¥¦§¨©ª«¬­®―°±²³΄µ¶·ΈΉΊ»Ό½ΎΏΐΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡÒΣΤΥΦΧΨΩΪΫάέήίΰαβγδεζηθικλμνξοπρςστυφχψωϊϋόύώÿ */
 static char_u latin1flags[257] = "                                                                 UUUUUUUUUUUUUUUUUUUUUUUUUU      llllllllllllllllllllllllll                                                                     UUUUUUUUUUUUUUUUUUUUUUU UUUUUUUllllllllllllllllllllllll llllllll";
-static char_u latin1upper[257] = "                                 !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}~€‚ƒ„…†‡‰‹‘’“”•–—™› ΅Ά£¤¥¦§¨©ª«¬­®―°±²³΄µ¶·ΈΉΊ»Ό½ΎΏΐΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡÒΣΤΥΦΧΨΩΪΫάέήίΐΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡÒΣΤΥΦχΨΩΪΫάέήÿ";
-static char_u latin1lower[257] = "                                 !\"#$%&'()*+,-./0123456789:;<=>?@abcdefghijklmnopqrstuvwxyz[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~€‚ƒ„…†‡‰‹‘’“”•–—™› ΅Ά£¤¥¦§¨©ª«¬­®―°±²³΄µ¶·ΈΉΊ»Ό½ΎΏΰαβγδεζηθικλμνξοπρςστυφΧψωϊϋόύώίΰαβγδεζηθικλμνξοπρςστυφχψωϊϋόύώÿ";
+static char_u latin1upper[257] = "                                 !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}~\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xf7\xd8\xd9\xda\xdb\xdc\xdd\xde\xff";
+static char_u latin1lower[257] = "                                 !\"#$%&'()*+,-./0123456789:;<=>?@abcdefghijklmnopqrstuvwxyz[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xd7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff";
 
     int
 vim_islower(c)

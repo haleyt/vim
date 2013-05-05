@@ -1,19 +1,20 @@
-*** src/testdir/Make_ming.mak	2011-07-15 21:16:54.000000000 +0200
---- Make_ming.mak	2011-10-12 17:39:03.000000000 +0200
+*** src/testdir/Make_ming.mak	2013-02-26 17:21:15.000000000 +0100
+--- Make_ming.mak	2013-04-12 13:40:06.000000000 +0200
 ***************
-*** 49,55 ****
-  		test42.out test52.out test65.out test66.out test67.out \
-  		test68.out test69.out test71.out test72.out test73.out \
+*** 51,57 ****
   		test74.out test75.out test76.out test77.out test78.out \
-! 		test79.out test80.out test81.out test82.out
+  		test79.out test80.out test81.out test82.out test83.out \
+  		test84.out test85.out test86.out test87.out test88.out \
+! 		test89.out test90.out test91.out test92.out test93.out
   
   SCRIPTS32 =	test50.out test70.out
   
---- 49,55 ----
-  		test42.out test52.out test65.out test66.out test67.out \
-  		test68.out test69.out test71.out test72.out test73.out \
+--- 51,58 ----
   		test74.out test75.out test76.out test77.out test78.out \
-! 		test79.out test80.out test81.out test82.out test83.out
+  		test79.out test80.out test81.out test82.out test83.out \
+  		test84.out test85.out test86.out test87.out test88.out \
+! 		test89.out test90.out test91.out test92.out test93.out \
+! 		test94.out
   
   SCRIPTS32 =	test50.out test70.out
   

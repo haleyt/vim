@@ -1,25 +1,28 @@
-# Makefile for VIM on Win32, using 'EGCS/mingw32 1.1.2'.
+# Makefile for VIM on Win32
+#
 # Info at http://www.mingw.org
-# Also requires 'GNU make 3.77', which you can get through a link
-# to 'JanJaap's page from the above page.
+# Alternative x86 and 64-builds: http://mingw-w64.sourceforge.net
+# Also requires GNU make, which you can download from the same sites.
 # Get missing libraries from http://gnuwin32.sf.net.
 #
 # Tested on Win32 NT 4 and Win95.
 #
-# To make everything, just 'make -f Make_ming.mak'
-# To make just e.g. gvim.exe, 'make -f Make_ming.mak gvim.exe'
-# After a run, you can 'make -f Make_ming.mak clean' to clean up
+# To make everything, just 'make -f Make_ming.mak'.
+# To make just e.g. gvim.exe, 'make -f Make_ming.mak gvim.exe'.
+# After a run, you can 'make -f Make_ming.mak clean' to clean up.
 #
 # NOTE: Sometimes 'GNU Make' will stop after building vimrun.exe -- I think
 # it's just run out of memory or something.  Run again, and it will continue
 # with 'xxd'.
 #
-# "make upx" makes *compressed* versions of the GUI and console EXEs, using the
-# excellent UPX compressor:
+# "make upx" makes *compressed* versions of the 32 bit GUI and console EXEs,
+# using the excellent UPX compressor:
 #     http://upx.sourceforge.net/
+# "make mpress" uses the MPRESS compressor for 32- and 64-bit EXEs:
+#     http://www.matcode.com/mpress.htm
 #
-# Maintained by Ron Aaron <ronaharon@yahoo.com>
-# updated 2003 Jan 20
+# Maintained by Ron Aaron <ronaharon@yahoo.com> et al.
+# Updated 2012 Sep 5.
 
 #>>>>> choose options:
 # set to yes for a debug build
@@ -29,30 +32,33 @@ OPTIMIZE=MAXSPEED
 # set to yes to make gvim, no for vim
 GUI=yes
 # FEATURES=[TINY | SMALL  | NORMAL | BIG | HUGE]
-# set to TINY to make minimal version (few features)
+# Set to TINY to make minimal version (few features).
 FEATURES=BIG
-# set to one of i386, i486, i586, i686 as the minimum target processor
+# Set to one of i386, i486, i586, i686 as the minimum target processor.
+# For amd64/x64 architecture set ARCH=x86-64 .
 ARCH=i386
-# set to yes to cross-compile from unix; no=native Windows
+# Set to yes to cross-compile from unix; no=native Windows.
 CROSS=no
-# set to path to iconv.h and libiconv.a to enable using 'iconv.dll'
+# Set to path to iconv.h and libiconv.a to enable using 'iconv.dll'.
 #ICONV="."
 ICONV=yes
 GETTEXT=yes
-# set to yes to include multibyte support
+# Set to yes to include multibyte support.
 MBYTE=yes
-# set to yes to include IME support
+# Set to yes to include IME support.
 IME=yes
 DYNAMIC_IME=yes
-# set to yes to enable writing a postscript file with :hardcopy
+# Set to yes to enable writing a postscript file with :hardcopy.
 POSTSCRIPT=no
-# set to yes to enable OLE support
+# Set to yes to enable OLE support.
 OLE=no
-# Set the default $(WINVER) to make it work with pre-Win2k
-WINVER = 0x0400
-# Set to yes to enable Cscope support
+# Set the default $(WINVER) to make it work with pre-Win2k.
+ifndef WINVER
+WINVER = 0x0500
+endif
+# Set to yes to enable Cscope support.
 CSCOPE=yes
-# Set to yes to enable Netbeans support
+# Set to yes to enable Netbeans support.
 NETBEANS=$(GUI)
 
 
@@ -256,7 +262,9 @@ endif
 #	  DYNAMIC_RUBY=yes (to load the Ruby DLL dynamically)
 #	  RUBY_VER=[Ruby version, eg 16, 17] (default is 16)
 #	  RUBY_VER_LONG=[Ruby version, eg 1.6, 1.7] (default is 1.6)
-#	    You must set RUBY_VER_LONG when change RUBY_VER.
+#	    You must set RUBY_VER_LONG when changing RUBY_VER.
+#	    You must set RUBY_API_VER version to RUBY_VER_LONG.
+#	    Don't set ruby API version to RUBY_VER like 191.
 #RUBY=c:/ruby
 ifdef RUBY
 ifndef DYNAMIC_RUBY
@@ -269,6 +277,9 @@ endif
 ifndef RUBY_VER_LONG
 RUBY_VER_LONG = 1.6
 endif
+ifndef RUBY_API_VER
+RUBY_API_VER = $(subst .,,$(RUBY_VER_LONG))
+endif
 
 ifndef RUBY_PLATFORM
 ifeq ($(RUBY_VER), 16)
@@ -277,20 +288,35 @@ else
 ifneq ($(wildcard $(RUBY)/lib/ruby/$(RUBY_VER_LONG)/i386-mingw32),)
 RUBY_PLATFORM = i386-mingw32
 else
+ifneq ($(wildcard $(RUBY)/lib/ruby/$(RUBY_VER_LONG)/x64-mingw32),)
+RUBY_PLATFORM = x64-mingw32
+else
 RUBY_PLATFORM = i386-mswin32
+endif
 endif
 endif
 endif
 
 ifndef RUBY_INSTALL_NAME
 ifeq ($(RUBY_VER), 16)
-RUBY_INSTALL_NAME = mswin32-ruby$(RUBY_VER)
+RUBY_INSTALL_NAME = mswin32-ruby$(RUBY_API_VER)
 else
-RUBY_INSTALL_NAME = msvcrt-ruby$(RUBY_VER)
+ifeq ($(ARCH),x86-64)
+RUBY_INSTALL_NAME = x64-msvcrt-ruby$(RUBY_API_VER)
+else
+RUBY_INSTALL_NAME = msvcrt-ruby$(RUBY_API_VER)
+endif
 endif
 endif
 
-RUBYINC =-I $(RUBY)/lib/ruby/$(RUBY_VER_LONG)/$(RUBY_PLATFORM) -I $(RUBY)/include/ruby-$(RUBY_VER_LONG) -I $(RUBY)/include/ruby-$(RUBY_VER_LONG)/$(RUBY_PLATFORM)
+ifeq (19, $(word 1,$(sort 19 $(RUBY_VER))))
+RUBY_19_OR_LATER = 1
+endif
+
+RUBYINC = -I $(RUBY)/lib/ruby/$(RUBY_VER_LONG)/$(RUBY_PLATFORM)
+ifdef RUBY_19_OR_LATER
+RUBYINC += -I $(RUBY)/include/ruby-$(RUBY_VER_LONG) -I $(RUBY)/include/ruby-$(RUBY_VER_LONG)/$(RUBY_PLATFORM)
+endif
 ifeq (no, $(DYNAMIC_RUBY))
 RUBYLIB = -L$(RUBY)/lib -l$(RUBY_INSTALL_NAME)
 endif
@@ -366,6 +392,9 @@ CFLAGS += -I$(MZSCHEME)/include -DFEAT_MZSCHEME -DMZSCHEME_COLLECTS=\"$(MZSCHEME
 ifeq (yes, $(DYNAMIC_MZSCHEME))
 CFLAGS += -DDYNAMIC_MZSCHEME -DDYNAMIC_MZSCH_DLL=\"lib$(MZSCHEME_MAIN_LIB)$(MZSCHEME_VER).dll\" -DDYNAMIC_MZGC_DLL=\"libmzgc$(MZSCHEME_VER).dll\"
 endif
+ifeq (yes, "$(MZSCHEME_DEBUG)")
+CFLAGS += -DMZSCHEME_FORCE_GC
+endif
 endif
 
 ifdef RUBY
@@ -422,11 +451,32 @@ endif
 endif
 endif
 
-ifdef XPM
 # Only allow XPM for a GUI build.
 ifeq (yes, $(GUI))
-CFLAGS += -DFEAT_XPM_W32 -I $(XPM)/include
+
+ifndef XPM
+ifeq ($(ARCH),i386)
+XPM = xpm/x86
 endif
+ifeq ($(ARCH),i486)
+XPM = xpm/x86
+endif
+ifeq ($(ARCH),i586)
+XPM = xpm/x86
+endif
+ifeq ($(ARCH),i686)
+XPM = xpm/x86
+endif
+ifeq ($(ARCH),x86-64)
+XPM = xpm/x64
+endif
+endif
+ifdef XPM
+ifneq ($(XPM),no)
+CFLAGS += -DFEAT_XPM_W32 -I $(XPM)/include -I $(XPM)/../include
+endif
+endif
+
 endif
 
 ifeq ($(DEBUG),yes)
@@ -481,6 +531,7 @@ OBJ = \
 	$(OUTDIR)/option.o \
 	$(OUTDIR)/os_win32.o \
 	$(OUTDIR)/os_mswin.o \
+	$(OUTDIR)/winclip.o \
 	$(OUTDIR)/pathdef.o \
 	$(OUTDIR)/popupmnu.o \
 	$(OUTDIR)/quickfix.o \
@@ -556,10 +607,10 @@ TARGET := gvim$(DEBUG_SUFFIX).exe
 DEFINES += $(DEF_GUI)
 OBJ += $(GUIOBJ)
 LFLAGS += -mwindows
-OUTDIR = gobj$(DEBUG_SUFFIX)$(MZSCHEME_SUFFIX)
+OUTDIR = gobj$(DEBUG_SUFFIX)$(MZSCHEME_SUFFIX)$(ARCH)
 else
 TARGET := vim$(DEBUG_SUFFIX).exe
-OUTDIR = obj$(DEBUG_SUFFIX)$(MZSCHEME_SUFFIX)
+OUTDIR = obj$(DEBUG_SUFFIX)$(MZSCHEME_SUFFIX)$(ARCH)
 endif
 
 ifdef GETTEXT
@@ -640,6 +691,10 @@ upx: exes
 	upx gvim.exe
 	upx vim.exe
 
+mpress: exes
+	mpress gvim.exe
+	mpress vim.exe
+
 xxd/xxd.exe: xxd/xxd.c
 	$(MAKE) -C xxd -f Make_ming.mak CC=$(CC)
 
@@ -675,11 +730,9 @@ $(OUTDIR)/if_python3.o : if_python3.c $(INCL)
 $(OUTDIR)/%.o : %.c $(INCL)
 	$(CC) -c $(CFLAGS) $< -o $@
 
-$(OUTDIR)/vimres.res: vim.rc version.h gui_w32_rc.h
-	$(WINDRES) $(WINDRES_FLAGS) $(DEFINES) vim.rc $(OUTDIR)/vimres.res
-
-$(OUTDIR)/vimrc.o: $(OUTDIR)/vimres.res
-	$(WINDRES) $(WINDRES_FLAGS) $(OUTDIR)/vimres.res $(OUTDIR)/vimrc.o
+$(OUTDIR)/vimrc.o: vim.rc version.h gui_w32_rc.h
+	$(WINDRES) $(WINDRES_FLAGS) $(DEFINES) \
+	    --input-format=rc --output-format=coff -i vim.rc -o $@
 
 $(OUTDIR):
 	$(MKDIR) $(OUTDIR)
@@ -689,6 +742,9 @@ $(OUTDIR)/ex_docmd.o:	ex_docmd.c $(INCL) ex_cmds.h
 
 $(OUTDIR)/ex_eval.o:	ex_eval.c $(INCL) ex_cmds.h
 	$(CC) -c $(CFLAGS) ex_eval.c -o $(OUTDIR)/ex_eval.o
+
+$(OUTDIR)/gui_w32.o:	gui_w32.c gui_w48.c $(INCL)
+	$(CC) -c $(CFLAGS) gui_w32.c -o $(OUTDIR)/gui_w32.o
 
 $(OUTDIR)/if_cscope.o:	if_cscope.c $(INCL) if_cscope.h
 	$(CC) -c $(CFLAGS) if_cscope.c -o $(OUTDIR)/if_cscope.o

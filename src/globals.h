@@ -180,9 +180,13 @@ EXTERN int	emsg_skip INIT(= 0);	    /* don't display errors for
 EXTERN int	emsg_severe INIT(= FALSE);   /* use message of next of several
 					       emsg() calls for throw */
 EXTERN int	did_endif INIT(= FALSE);    /* just had ":endif" */
+EXTERN dict_T	vimvardict;		    /* Dictionary with v: variables */
+EXTERN dict_T	globvardict;		    /* Dictionary with g: variables */
 #endif
 EXTERN int	did_emsg;		    /* set by emsg() when the message
 					       is displayed or thrown */
+EXTERN int	did_emsg_syntax;	    /* did_emsg set because of a
+					       syntax error */
 EXTERN int	called_emsg;		    /* always set by emsg() */
 EXTERN int	ex_exitval INIT(= 0);	    /* exit value for ex mode */
 EXTERN int	emsg_on_display INIT(= FALSE);	/* there is an error message */
@@ -513,11 +517,12 @@ EXTERN VimClipboard clip_plus;	/* CLIPBOARD selection in X11 */
 #  define ONE_CLIPBOARD
 # endif
 
-#define CLIP_UNNAMED      1
-#define CLIP_UNNAMED_PLUS 2
+# define CLIP_UNNAMED      1
+# define CLIP_UNNAMED_PLUS 2
 EXTERN int	clip_unnamed INIT(= 0); /* above two values or'ed */
 
-EXTERN int	clip_autoselect INIT(= FALSE);
+EXTERN int	clip_autoselect_star INIT(= FALSE);
+EXTERN int	clip_autoselect_plus INIT(= FALSE);
 EXTERN int	clip_autoselectml INIT(= FALSE);
 EXTERN int	clip_html INIT(= FALSE);
 EXTERN regprog_T *clip_exclude_prog INIT(= NULL);
@@ -535,6 +540,10 @@ EXTERN win_T	*lastwin;		/* last window */
 EXTERN win_T	*prevwin INIT(= NULL);	/* previous window */
 # define W_NEXT(wp) ((wp)->w_next)
 # define FOR_ALL_WINDOWS(wp) for (wp = firstwin; wp != NULL; wp = wp->w_next)
+/*
+ * When using this macro "break" only breaks out of the inner loop. Use "goto"
+ * to break out of the tabpage loop.
+ */
 # define FOR_ALL_TAB_WINDOWS(tp, wp) \
     for ((tp) = first_tabpage; (tp) != NULL; (tp) = (tp)->tp_next) \
 	for ((wp) = ((tp) == curtab) \
@@ -733,9 +742,9 @@ EXTERN int	can_si_back INIT(= FALSE);
 #endif
 
 EXTERN pos_T	saved_cursor		/* w_cursor before formatting text. */
-# ifdef DO_INIT
+#ifdef DO_INIT
 	= INIT_POS_T(0, 0, 0)
-# endif
+#endif
 	;
 
 /*
@@ -795,7 +804,7 @@ EXTERN int	enc_dbcs INIT(= 0);		/* One of DBCS_xxx values if
 EXTERN int	enc_unicode INIT(= 0);	/* 2: UCS-2 or UTF-16, 4: UCS-4 */
 EXTERN int	enc_utf8 INIT(= FALSE);		/* UTF-8 encoded Unicode */
 EXTERN int	enc_latin1like INIT(= TRUE);	/* 'encoding' is latin1 comp. */
-# ifdef WIN3264
+# if defined(WIN3264) || defined(FEAT_CYGWIN_WIN32_CLIPBOARD)
 /* Codepage nr of 'encoding'.  Negative means it's not been set yet, zero
  * means 'encoding' is not a valid codepage. */
 EXTERN int	enc_codepage INIT(= -1);
@@ -803,9 +812,9 @@ EXTERN int	enc_latin9 INIT(= FALSE);	/* 'encoding' is latin9 */
 # endif
 EXTERN int	has_mbyte INIT(= 0);		/* any multi-byte encoding */
 
-#if defined(WIN3264) && defined(FEAT_MBYTE)
+# if defined(WIN3264) && defined(FEAT_MBYTE)
 EXTERN int	wide_WindowProc INIT(= FALSE);	/* use wide WindowProc() */
-#endif
+# endif
 
 /*
  * To speed up BYTELEN() we fill a table with the byte lengths whenever
@@ -1050,11 +1059,13 @@ EXTERN int	autocmd_fname_full;	     /* autocmd_fname is full path */
 EXTERN int	autocmd_bufnr INIT(= 0);     /* fnum for <abuf> on cmdline */
 EXTERN char_u	*autocmd_match INIT(= NULL); /* name for <amatch> on cmdline */
 EXTERN int	did_cursorhold INIT(= FALSE); /* set when CursorHold t'gerd */
-EXTERN pos_T	last_cursormoved	    /* for CursorMoved event */
+EXTERN pos_T	last_cursormoved	      /* for CursorMoved event */
 # ifdef DO_INIT
 			= INIT_POS_T(0, 0, 0)
 # endif
 			;
+EXTERN int	last_changedtick INIT(= 0);   /* for TextChanged event */
+EXTERN buf_T	*last_changedtick_buf INIT(= NULL);
 #endif
 
 #ifdef FEAT_WINDOWS
@@ -1095,8 +1106,8 @@ EXTERN char_u	langmap_mapchar[256];	/* mapping for language keys */
 EXTERN int  save_p_ls INIT(= -1);	/* Save 'laststatus' setting */
 EXTERN int  save_p_wmh INIT(= -1);	/* Save 'winminheight' setting */
 EXTERN int  wild_menu_showing INIT(= 0);
-#define WM_SHOWN	1		/* wildmenu showing */
-#define WM_SCROLLED	2		/* wildmenu showing with scroll */
+# define WM_SHOWN	1		/* wildmenu showing */
+# define WM_SCROLLED	2		/* wildmenu showing with scroll */
 #endif
 
 #ifdef MSWIN
@@ -1306,9 +1317,9 @@ EXTERN Window	clientWindow INIT(= None);
 EXTERN Atom	commProperty INIT(= None);
 EXTERN char_u	*serverDelayedStartName INIT(= NULL);
 # else
-# ifdef PROTO
+#  ifdef PROTO
 typedef int HWND;
-# endif
+#  endif
 EXTERN HWND	clientWindow INIT(= 0);
 # endif
 #endif

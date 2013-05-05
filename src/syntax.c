@@ -105,7 +105,7 @@ static GuiFont font_name2handle __ARGS((char_u *name));
 # ifdef FEAT_XFONTSET
 static GuiFontset fontset_name2handle __ARGS((char_u *name, int fixed_width));
 # endif
-static void hl_do_font __ARGS((int idx, char_u *arg, int do_normal, int do_menu, int do_tooltip));
+static void hl_do_font __ARGS((int idx, char_u *arg, int do_normal, int do_menu, int do_tooltip, int free_font));
 #endif
 
 /*
@@ -1954,9 +1954,9 @@ syn_current_attr(syncing, displaying, can_spell, keep_state)
 	    if (do_keywords)
 	    {
 	      line = syn_getcurline();
-	      if (vim_iswordc_buf(line + current_col, syn_buf)
+	      if (vim_iswordp_buf(line + current_col, syn_buf)
 		      && (current_col == 0
-			  || !vim_iswordc_buf(line + current_col - 1
+			  || !vim_iswordp_buf(line + current_col - 1
 #ifdef FEAT_MBYTE
 			      - (has_mbyte
 				  ? (*mb_head_off)(line, line + current_col - 1)
@@ -3280,7 +3280,7 @@ check_keyword_id(line, startcol, endcolp, flagsp, next_listp, cur_si, ccharp)
 #endif
 	    ++kwlen;
     }
-    while (vim_iswordc_buf(kwp + kwlen, syn_buf));
+    while (vim_iswordp_buf(kwp + kwlen, syn_buf));
 
     if (kwlen > MAXKEYWLEN)
 	return 0;
@@ -6516,8 +6516,6 @@ static char *(highlight_init_both[]) =
 	     "DiffText term=reverse cterm=bold ctermbg=Red gui=bold guibg=Red"),
 #endif
 #ifdef FEAT_INS_EXPAND
-	CENT("PmenuThumb cterm=reverse",
-	     "PmenuThumb cterm=reverse gui=reverse"),
 	CENT("PmenuSbar ctermbg=Grey",
 	     "PmenuSbar ctermbg=Grey guibg=Grey"),
 #endif
@@ -6540,6 +6538,8 @@ static char *(highlight_init_light[]) =
 	     "Directory term=bold ctermfg=DarkBlue guifg=Blue"),
 	CENT("LineNr term=underline ctermfg=Brown",
 	     "LineNr term=underline ctermfg=Brown guifg=Brown"),
+	CENT("CursorLineNr term=bold ctermfg=Brown",
+	     "CursorLineNr term=bold ctermfg=Brown gui=bold guifg=Brown"),
 	CENT("MoreMsg term=bold ctermfg=DarkGreen",
 	     "MoreMsg term=bold ctermfg=DarkGreen gui=bold guifg=SeaGreen"),
 	CENT("Question term=standout ctermfg=DarkGreen",
@@ -6557,10 +6557,12 @@ static char *(highlight_init_light[]) =
 	     "SpellLocal term=underline ctermbg=Cyan guisp=DarkCyan gui=undercurl"),
 #endif
 #ifdef FEAT_INS_EXPAND
-	CENT("Pmenu ctermbg=LightMagenta",
-	     "Pmenu ctermbg=LightMagenta guibg=LightMagenta"),
-	CENT("PmenuSel ctermbg=LightGrey",
-	     "PmenuSel ctermbg=LightGrey guibg=Grey"),
+	CENT("PmenuThumb ctermbg=Black",
+	     "PmenuThumb ctermbg=Black guibg=Black"),
+	CENT("Pmenu ctermbg=LightMagenta ctermfg=Black",
+	     "Pmenu ctermbg=LightMagenta ctermfg=Black guibg=LightMagenta"),
+	CENT("PmenuSel ctermbg=LightGrey ctermfg=Black",
+	     "PmenuSel ctermbg=LightGrey ctermfg=Black guibg=Grey"),
 #endif
 	CENT("SpecialKey term=bold ctermfg=DarkBlue",
 	     "SpecialKey term=bold ctermfg=DarkBlue guifg=Blue"),
@@ -6626,6 +6628,8 @@ static char *(highlight_init_dark[]) =
 	     "Directory term=bold ctermfg=LightCyan guifg=Cyan"),
 	CENT("LineNr term=underline ctermfg=Yellow",
 	     "LineNr term=underline ctermfg=Yellow guifg=Yellow"),
+	CENT("CursorLineNr term=bold ctermfg=Yellow",
+	     "CursorLineNr term=bold ctermfg=Yellow gui=bold guifg=Yellow"),
 	CENT("MoreMsg term=bold ctermfg=LightGreen",
 	     "MoreMsg term=bold ctermfg=LightGreen gui=bold guifg=SeaGreen"),
 	CENT("Question term=standout ctermfg=LightGreen",
@@ -6645,10 +6649,12 @@ static char *(highlight_init_dark[]) =
 	     "SpellLocal term=underline ctermbg=Cyan guisp=Cyan gui=undercurl"),
 #endif
 #ifdef FEAT_INS_EXPAND
-	CENT("Pmenu ctermbg=Magenta",
-	     "Pmenu ctermbg=Magenta guibg=Magenta"),
-	CENT("PmenuSel ctermbg=DarkGrey",
-	     "PmenuSel ctermbg=DarkGrey guibg=DarkGrey"),
+	CENT("PmenuThumb ctermbg=White",
+	     "PmenuThumb ctermbg=White guibg=White"),
+	CENT("Pmenu ctermbg=Magenta ctermfg=Black",
+	     "Pmenu ctermbg=Magenta ctermfg=Black guibg=Magenta"),
+	CENT("PmenuSel ctermbg=Black ctermfg=DarkGrey",
+	     "PmenuSel ctermbg=Black ctermfg=DarkGrey guibg=DarkGrey"),
 #endif
 	CENT("Title term=bold ctermfg=LightMagenta",
 	     "Title term=bold ctermfg=LightMagenta gui=bold guifg=Magenta"),
@@ -7253,14 +7259,13 @@ do_highlight(line, forceit, init)
 		HL_TABLE()[idx].sg_fontset = NOFONTSET;
 # endif
 		hl_do_font(idx, arg, is_normal_group, is_menu_group,
-							    is_tooltip_group);
+						     is_tooltip_group, FALSE);
 
 # ifdef FEAT_XFONTSET
 		if (HL_TABLE()[idx].sg_fontset != NOFONTSET)
 		{
-		    /* New fontset was accepted. Free the old one, if there was
-		     * one.
-		     */
+		    /* New fontset was accepted. Free the old one, if there
+		     * was one. */
 		    gui_mch_free_fontset(temp_sg_fontset);
 		    vim_free(HL_TABLE()[idx].sg_font_name);
 		    HL_TABLE()[idx].sg_font_name = vim_strsave(arg);
@@ -7271,8 +7276,7 @@ do_highlight(line, forceit, init)
 		if (HL_TABLE()[idx].sg_font != NOFONT)
 		{
 		    /* New font was accepted. Free the old one, if there was
-		     * one.
-		     */
+		     * one. */
 		    gui_mch_free_font(temp_sg_font);
 		    vim_free(HL_TABLE()[idx].sg_font_name);
 		    HL_TABLE()[idx].sg_font_name = vim_strsave(arg);
@@ -8058,12 +8062,13 @@ fontset_name2handle(name, fixed_width)
  * Get the font or fontset for one highlight group.
  */
     static void
-hl_do_font(idx, arg, do_normal, do_menu, do_tooltip)
+hl_do_font(idx, arg, do_normal, do_menu, do_tooltip, free_font)
     int		idx;
     char_u	*arg;
     int		do_normal;		/* set normal font */
     int		do_menu UNUSED;		/* set menu font */
     int		do_tooltip UNUSED;	/* set tooltip font */
+    int		free_font;		/* free current font/fontset */
 {
 # ifdef FEAT_XFONTSET
     /* If 'guifontset' is not empty, first try using the name as a
@@ -8077,6 +8082,9 @@ hl_do_font(idx, arg, do_normal, do_menu, do_tooltip)
 	|| do_tooltip
 #  endif
 	    )
+    {
+	if (free_font)
+	    gui_mch_free_fontset(HL_TABLE()[idx].sg_fontset);
 	HL_TABLE()[idx].sg_fontset = fontset_name2handle(arg, 0
 #  ifdef FONTSET_ALWAYS
 		|| do_menu
@@ -8085,10 +8093,11 @@ hl_do_font(idx, arg, do_normal, do_menu, do_tooltip)
 		|| do_tooltip
 #  endif
 		);
+    }
     if (HL_TABLE()[idx].sg_fontset != NOFONTSET)
     {
-	/* If it worked and it's the Normal group, use it as the
-	 * normal fontset.  Same for the Menu group. */
+	/* If it worked and it's the Normal group, use it as the normal
+	 * fontset.  Same for the Menu group. */
 	if (do_normal)
 	    gui_init_font(arg, TRUE);
 #   if (defined(FEAT_GUI_MOTIF) || defined(FEAT_GUI_ATHENA)) && defined(FEAT_MENU)
@@ -8120,6 +8129,8 @@ hl_do_font(idx, arg, do_normal, do_menu, do_tooltip)
     else
 # endif
     {
+	if (free_font)
+	    gui_mch_free_font(HL_TABLE()[idx].sg_font);
 	HL_TABLE()[idx].sg_font = font_name2handle(arg);
 	/* If it worked and it's the Normal group, use it as the
 	 * normal font.  Same for the Menu group. */
@@ -9156,7 +9167,7 @@ gui_do_one_color(idx, do_menu, do_tooltip)
     if (HL_TABLE()[idx].sg_font_name != NULL)
     {
 	hl_do_font(idx, HL_TABLE()[idx].sg_font_name, FALSE, do_menu,
-		   do_tooltip);
+							    do_tooltip, TRUE);
 	didit = TRUE;
     }
     if (HL_TABLE()[idx].sg_gui_fg_name != NULL)
@@ -9470,7 +9481,7 @@ highlight_list_two(cnt, attr)
     int	    cnt;
     int	    attr;
 {
-    msg_puts_attr((char_u *)("N \bI \b!  \b" + cnt / 11), attr);
+    msg_puts_attr((char_u *)&("N \bI \b!  \b"[cnt / 11]), attr);
     msg_clr_eos();
     out_flush();
     ui_delay(cnt == 99 ? 40L : (long)cnt * 50L, FALSE);

@@ -161,6 +161,7 @@
 #undef HAVE_FSYNC
 #undef HAVE_GETCWD
 #undef HAVE_GETPSEUDOTTY
+#undef HAVE_GETPWENT
 #undef HAVE_GETPWNAM
 #undef HAVE_GETPWUID
 #undef HAVE_GETRLIMIT
@@ -363,6 +364,7 @@
 
 /* Define if you want to add support for ACL */
 #undef HAVE_POSIX_ACL
+#undef HAVE_SOLARIS_ZFS_ACL
 #undef HAVE_SOLARIS_ACL
 #undef HAVE_AIX_ACL
 
@@ -437,3 +439,6 @@
 
 /* Define if fcntl()'s F_SETFD command knows about FD_CLOEXEC */
 #undef HAVE_FD_CLOEXEC
+
+/* Define if you want Cygwin to use the WIN32 clipboard, not compatible with X11*/
+#undef FEAT_CYGWIN_WIN32_CLIPBOARD

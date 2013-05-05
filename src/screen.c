@@ -89,6 +89,9 @@
 
 #include "vim.h"
 
+#define MB_FILLER_CHAR '<'  /* character used when a double-width character
+			     * doesn't fit. */
+
 /*
  * The attributes that are actually active for writing to the screen.
  */
@@ -516,8 +519,10 @@ update_screen(type)
 # endif
 # ifdef FEAT_CLIPBOARD
 		/* When Visual area changed, may have to update selection. */
-		if (clip_star.available && clip_isautosel())
-		    clip_update_selection();
+		if (clip_star.available && clip_isautosel_star())
+		    clip_update_selection(&clip_star);
+		if (clip_plus.available && clip_isautosel_plus())
+		    clip_update_selection(&clip_plus);
 # endif
 #ifdef FEAT_GUI
 		/* Remove the cursor before starting to do anything, because
@@ -542,6 +547,11 @@ update_screen(type)
     }
 #if defined(FEAT_SEARCH_EXTRA)
     end_search_hl();
+#endif
+#ifdef FEAT_INS_EXPAND
+    /* May need to redraw the popup menu. */
+    if (pum_visible())
+	pum_redraw();
 #endif
 
 #ifdef FEAT_WINDOWS
@@ -811,8 +821,10 @@ updateWindow(wp)
 
 #ifdef FEAT_CLIPBOARD
     /* When Visual area changed, may have to update selection. */
-    if (clip_star.available && clip_isautosel())
-	clip_update_selection();
+    if (clip_star.available && clip_isautosel_star())
+	clip_update_selection(&clip_star);
+    if (clip_plus.available && clip_isautosel_plus())
+	clip_update_selection(&clip_plus);
 #endif
 
     win_update(wp);
@@ -2312,6 +2324,7 @@ fold_line(wp, fold_count, foldinfo, lnum, row)
 	{
 	    int	    w = number_width(wp);
 	    long num;
+	    char *fmt = "%*ld ";
 
 	    if (len > w + 1)
 		len = w + 1;
@@ -2320,10 +2333,17 @@ fold_line(wp, fold_count, foldinfo, lnum, row)
 		/* 'number' */
 		num = (long)lnum;
 	    else
+	    {
 		/* 'relativenumber', don't use negative numbers */
 		num = labs((long)get_cursor_rel_lnum(wp, lnum));
+		if (num == 0)
+		{
+		    num = lnum;
+		    fmt = "%-*ld ";
+		}
+	    }
 
-	    sprintf((char *)buf, "%*ld ", w, num);
+	    sprintf((char *)buf, fmt, w, num);
 #ifdef FEAT_RIGHTLEFT
 	    if (wp->w_p_rl)
 		/* the line number isn't reversed */
@@ -2997,7 +3017,10 @@ win_line(wp, lnum, startrow, endrow, nochange)
 	    area_highlighting = TRUE;
 	    attr = hl_attr(HLF_V);
 #if defined(FEAT_CLIPBOARD) && defined(FEAT_X11)
-	    if (clip_star.available && !clip_star.owned && clip_isautosel())
+	    if ((clip_star.available && !clip_star.owned
+						     && clip_isautosel_star())
+		    || (clip_plus.available && !clip_plus.owned
+						    && clip_isautosel_plus()))
 		attr = hl_attr(HLF_VNC);
 #endif
 	}
@@ -3228,8 +3251,7 @@ win_line(wp, lnum, startrow, endrow, nochange)
 		/* no bad word found at line start, don't check until end of a
 		 * word */
 		spell_hlf = HLF_COUNT;
-		word_end = (int)(spell_to_word_end(ptr, wp)
-								  - line + 1);
+		word_end = (int)(spell_to_word_end(ptr, wp) - line + 1);
 	    }
 	    else
 	    {
@@ -3475,15 +3497,23 @@ win_line(wp, lnum, startrow, endrow, nochange)
 			    )
 		    {
 			long num;
+			char *fmt = "%*ld ";
 
 			if (wp->w_p_nu)
 			    /* 'number' */
 			    num = (long)lnum;
 			else
+			{
 			    /* 'relativenumber', don't use negative numbers */
 			    num = labs((long)get_cursor_rel_lnum(wp, lnum));
+			    if (num == 0)
+			    {
+				num = lnum;
+				fmt = "%-*ld ";
+			    }
+			}
 
-			sprintf((char *)extra, "%*ld ",
+			sprintf((char *)extra, fmt,
 						number_width(wp), num);
 			if (wp->w_skipcol > 0)
 			    for (p_extra = extra; *p_extra == ' '; ++p_extra)
@@ -3501,9 +3531,12 @@ win_line(wp, lnum, startrow, endrow, nochange)
 		    char_attr = hl_attr(HLF_N);
 #ifdef FEAT_SYN_HL
 		    /* When 'cursorline' is set highlight the line number of
-		     * the current line differently. */
-		    if (wp->w_p_cul && lnum == wp->w_cursor.lnum)
-			char_attr = hl_combine_attr(hl_attr(HLF_CUL), char_attr);
+		     * the current line differently.
+		     * TODO: Can we use CursorLine instead of CursorLineNr
+		     * when CursorLineNr isn't set? */
+		    if ((wp->w_p_cul || wp->w_p_rnu)
+						 && lnum == wp->w_cursor.lnum)
+			char_attr = hl_attr(HLF_CLN);
 #endif
 		}
 	    }
@@ -4015,7 +4048,7 @@ win_line(wp, lnum, startrow, endrow, nochange)
 		if (n_skip > 0 && mb_l > 1 && n_extra == 0)
 		{
 		    n_extra = 1;
-		    c_extra = '<';
+		    c_extra = MB_FILLER_CHAR;
 		    c = ' ';
 		    if (area_attr == 0 && search_attr == 0)
 		    {
@@ -4258,7 +4291,20 @@ win_line(wp, lnum, startrow, endrow, nochange)
 		{
 		    /* tab amount depends on current column */
 		    n_extra = (int)wp->w_buffer->b_p_ts
-				   - VCOL_HLC % (int)wp->w_buffer->b_p_ts - 1;
+					- vcol % (int)wp->w_buffer->b_p_ts - 1;
+#ifdef FEAT_CONCEAL
+		    /* Tab alignment should be identical regardless of
+		     * 'conceallevel' value. So tab compensates of all
+		     * previous concealed characters, and thus resets vcol_off
+		     * and boguscols accumulated so far in the line. Note that
+		     * the tab can be longer than 'tabstop' when there
+		     * are concealed characters. */
+		    n_extra += vcol_off;
+		    vcol -= vcol_off;
+		    vcol_off = 0;
+		    col -= boguscols;
+		    boguscols = 0;
+#endif
 #ifdef FEAT_MBYTE
 		    mb_utf8 = FALSE;	/* don't draw as UTF-8 */
 #endif
@@ -4575,6 +4621,15 @@ win_line(wp, lnum, startrow, endrow, nochange)
 	    c = lcs_prec;
 	    lcs_prec_todo = NUL;
 #ifdef FEAT_MBYTE
+	    if (has_mbyte && (*mb_char2cells)(mb_c) > 1)
+	    {
+		/* Double-width character being overwritten by the "precedes"
+		 * character, need to fill up half the character. */
+		c_extra = MB_FILLER_CHAR;
+		n_extra = 1;
+		n_attr = 2;
+		extra_attr = hl_attr(HLF_AT);
+	    }
 	    mb_c = c;
 	    if (enc_utf8 && (*mb_char2len)(c) > 1)
 	    {
@@ -5312,8 +5367,9 @@ char_needs_redraw(off_from, off_to, cols)
 		    && (ScreenLinesUC[off_from] != ScreenLinesUC[off_to]
 			|| (ScreenLinesUC[off_from] != 0
 			    && comp_char_differs(off_from, off_to))
-			|| (cols > 1 && ScreenLines[off_from + 1]
-						 != ScreenLines[off_to + 1])))
+			|| ((*mb_off2cells)(off_from, off_from + cols) > 1
+			    && ScreenLines[off_from + 1]
+						  != ScreenLines[off_to + 1])))
 #endif
 	       ))
 	return TRUE;
@@ -5370,6 +5426,12 @@ screen_line(row, coloff, endcol, clear_width
 #else
 # define CHAR_CELLS 1
 #endif
+
+    /* Check for illegal row and col, just in case. */
+    if (row >= Rows)
+	row = Rows - 1;
+    if (endcol > Columns)
+	endcol = Columns;
 
 # ifdef FEAT_CLIPBOARD
     clip_may_clear_selection(row, row);
@@ -6613,16 +6675,17 @@ screen_putchar(c, row, col, attr)
     int	    row, col;
     int	    attr;
 {
-#ifdef FEAT_MBYTE
     char_u	buf[MB_MAXBYTES + 1];
 
-    buf[(*mb_char2bytes)(c, buf)] = NUL;
-#else
-    char_u	buf[2];
-
-    buf[0] = c;
-    buf[1] = NUL;
+#ifdef FEAT_MBYTE
+    if (has_mbyte)
+	buf[(*mb_char2bytes)(c, buf)] = NUL;
+    else
 #endif
+    {
+	buf[0] = c;
+	buf[1] = NUL;
+    }
     screen_puts(buf, row, col, attr);
 }
 
@@ -9040,7 +9103,7 @@ screen_ins_lines(off, row, line_count, end, wp)
 	    || (wp != NULL && wp->w_width != Columns)
 # endif
        )
-	clip_clear_selection();
+	clip_clear_selection(&clip_star);
     else
 	clip_scroll_selection(-line_count);
 #endif
@@ -9261,7 +9324,7 @@ screen_del_lines(off, row, line_count, end, force, wp)
 	    || (wp != NULL && wp->w_width != Columns)
 # endif
        )
-	clip_clear_selection();
+	clip_clear_selection(&clip_star);
     else
 	clip_scroll_selection(line_count);
 #endif
@@ -9848,7 +9911,7 @@ get_trans_bufname(buf)
     buf_T	*buf;
 {
     if (buf_spname(buf) != NULL)
-	STRCPY(NameBuff, buf_spname(buf));
+	vim_strncpy(NameBuff, buf_spname(buf), MAXPATHL - 1);
     else
 	home_replace(buf, buf->b_fname, NameBuff, MAXPATHL, TRUE);
     trans_characters(NameBuff, MAXPATHL);
@@ -10197,12 +10260,7 @@ number_width(wp)
     int		n;
     linenr_T	lnum;
 
-    if (wp->w_p_nu)
-	/* 'number' */
-	lnum = wp->w_buffer->b_ml.ml_line_count;
-    else
-	/* 'relativenumber' */
-	lnum = wp->w_height;
+    lnum = wp->w_buffer->b_ml.ml_line_count;
 
     if (lnum == wp->w_nrwidth_line_count)
 	return wp->w_nrwidth_width;
@@ -10223,3 +10281,23 @@ number_width(wp)
     return n;
 }
 #endif
+
+/*
+ * Return the current cursor column. This is the actual position on the
+ * screen. First column is 0.
+ */
+    int
+screen_screencol()
+{
+    return screen_cur_col;
+}
+
+/*
+ * Return the current cursor row. This is the actual position on the screen.
+ * First row is 0.
+ */
+    int
+screen_screenrow()
+{
+    return screen_cur_row;
+}

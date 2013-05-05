@@ -73,6 +73,7 @@ SRC_ALL =	\
 		src/version.c \
 		src/version.h \
 		src/vim.h \
+		src/winclip.c \
 		src/window.c \
 		src/xxd/xxd.c \
 		src/main.aap \
@@ -130,6 +131,7 @@ SRC_ALL =	\
 		src/proto/ui.pro \
 		src/proto/undo.pro \
 		src/proto/version.pro \
+		src/proto/winclip.pro \
 		src/proto/window.pro \
 
 
@@ -261,6 +263,7 @@ SRC_DOS =	\
 		src/Make_mvc.mak \
 		src/Make_w16.mak \
 		src/bigvim.bat \
+		src/bigvim64.bat \
 		src/msvcsetup.bat \
 		src/msvc2008.bat \
 		src/msvc2010.bat \
@@ -349,6 +352,13 @@ SRC_DOS_BIN =	\
 		src/vim*.ico \
 		src/vim.tlb \
 		src/vimtbar.lib \
+		src/xpm/COPYRIGHT \
+		src/xpm/README.txt \
+		src/xpm/include/*.h \
+		src/xpm/x64/lib/libXpm.a \
+		src/xpm/x64/lib/libXpm.lib \
+		src/xpm/x86/lib/libXpm.a \
+		src/xpm/x86/lib/libXpm.lib \
 		src/vimtbar.dll \
 		nsis/icons/*.bmp \
 		nsis/icons/*.ico \
@@ -436,6 +446,7 @@ SRC_EXTRA =	\
 		src/os_beos.c \
 		src/os_beos.h \
 		src/os_beos.rsrc \
+		src/proto/os_beos.pro \
 		src/os_mint.h \
 		src/os_vms_fix.com \
 		src/toolbar.phi \
@@ -463,6 +474,7 @@ RT_ALL =	\
 		runtime/macros/hanoi/hanoi.vim \
 		runtime/macros/hanoi/poster \
 		runtime/macros/justify.vim \
+		runtime/macros/less.bat \
 		runtime/macros/less.sh \
 		runtime/macros/less.vim \
 		runtime/macros/life/click.me \
@@ -666,6 +678,8 @@ EXTRA =		\
 
 # generic language files
 LANG_GEN = \
+		runtime/doc/*-de.1 \
+		runtime/doc/*-de.UTF-8.1 \
 		runtime/doc/*-fr.1 \
 		runtime/doc/*-fr.UTF-8.1 \
 		runtime/doc/*-it.1 \
@@ -682,9 +696,17 @@ LANG_GEN = \
 		runtime/tutor/Makefile \
 		runtime/tutor/tutor.utf-8 \
 		runtime/tutor/tutor.?? \
-		runtime/tutor/tutor.??.* \
+		runtime/tutor/tutor.??.utf-8 \
+		runtime/tutor/tutor.??.euc \
+		runtime/tutor/tutor.??.sjis \
+		runtime/tutor/tutor.??.iso9 \
+		runtime/tutor/tutor.??.big5 \
+		runtime/tutor/tutor.??.cp1250 \
+		runtime/tutor/tutor.??.cp1251 \
+		runtime/tutor/tutor.??.cp737 \
+		runtime/tutor/tutor.??_??.utf-8 \
 		runtime/tutor/tutor.bar \
-		runtime/tutor/tutor.bar.* \
+		runtime/tutor/tutor.bar.utf-8 \
 		runtime/spell/README.txt \
 		runtime/spell/??/*.diff \
 		runtime/spell/??/main.aap \

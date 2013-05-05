@@ -444,7 +444,7 @@ flush_buffers(flush_typeahead)
 	typebuf.tb_off = MAXMAPLEN;
 	typebuf.tb_len = 0;
     }
-    else		    /* remove mapped characters only */
+    else		    /* remove mapped characters at the start only */
     {
 	typebuf.tb_off += typebuf.tb_maplen;
 	typebuf.tb_len -= typebuf.tb_maplen;
@@ -723,7 +723,7 @@ read_redo(init, old_redo)
     int				c;
 #ifdef FEAT_MBYTE
     int				n;
-    char_u			buf[MB_MAXBYTES];
+    char_u			buf[MB_MAXBYTES + 1];
     int				i;
 #endif
 
@@ -1072,7 +1072,7 @@ ins_char_typebuf(c)
     int	    c;
 {
 #ifdef FEAT_MBYTE
-    char_u	buf[MB_MAXBYTES];
+    char_u	buf[MB_MAXBYTES + 1];
 #else
     char_u	buf[4];
 #endif
@@ -1337,6 +1337,10 @@ save_typebuf()
 
 static int old_char = -1;	/* character put back by vungetc() */
 static int old_mod_mask;	/* mod_mask for ungotten character */
+#ifdef FEAT_MOUSE
+static int old_mouse_row;	/* mouse_row related to old_char */
+static int old_mouse_col;	/* mouse_col related to old_char */
+#endif
 
 #if defined(FEAT_EVAL) || defined(FEAT_EX_EXTRA) || defined(PROTO)
 
@@ -1547,7 +1551,7 @@ vgetc()
     int		c, c2;
 #ifdef FEAT_MBYTE
     int		n;
-    char_u	buf[MB_MAXBYTES];
+    char_u	buf[MB_MAXBYTES + 1];
     int		i;
 #endif
 
@@ -1567,6 +1571,10 @@ vgetc()
 	c = old_char;
 	old_char = -1;
 	mod_mask = old_mod_mask;
+#ifdef FEAT_MOUSE
+	mouse_row = old_mouse_row;
+	mouse_col = old_mouse_col;
+#endif
     }
     else
     {
@@ -1877,6 +1885,10 @@ vungetc(c)	/* unget one character (can only be done once!) */
 {
     old_char = c;
     old_mod_mask = mod_mask;
+#ifdef FEAT_MOUSE
+    old_mouse_row = mouse_row;
+    old_mouse_col = mouse_col;
+#endif
 }
 
 /*
@@ -2282,7 +2294,8 @@ vgetorpeek(advance)
 						   typebuf.tb_off] == RM_YES))
 				&& !timedout)
 			{
-			    keylen = check_termcode(max_mlen + 1, NULL, 0);
+			    keylen = check_termcode(max_mlen + 1,
+							       NULL, 0, NULL);
 
 			    /* If no termcode matched but 'pastetoggle'
 			     * matched partially it's like an incomplete key
@@ -2818,7 +2831,8 @@ vgetorpeek(advance)
 			edit_unputchar();
 		    if (State & CMDLINE)
 			unputcmdline();
-		    setcursor();	/* put cursor back where it belongs */
+		    else
+			setcursor();	/* put cursor back where it belongs */
 		}
 
 		if (c < 0)
@@ -4334,11 +4348,7 @@ check_abbr(c, ptr, col, mincol)
     int		scol;		/* starting column of the abbr. */
     int		j;
     char_u	*s;
-#ifdef FEAT_MBYTE
     char_u	tb[MB_MAXBYTES + 4];
-#else
-    char_u	tb[4];
-#endif
     mapblock_T	*mp;
 #ifdef FEAT_LOCALMAP
     mapblock_T	*mp2;
@@ -4351,8 +4361,9 @@ check_abbr(c, ptr, col, mincol)
 
     if (typebuf.tb_no_abbr_cnt)	/* abbrev. are not recursive */
 	return FALSE;
-    if ((KeyNoremap & (RM_NONE|RM_SCRIPT)) != 0)
-	/* no remapping implies no abbreviation */
+
+    /* no remapping implies no abbreviation, except for CTRL-] */
+    if ((KeyNoremap & (RM_NONE|RM_SCRIPT)) != 0 && c != Ctrl_RSB)
 	return FALSE;
 
     /*

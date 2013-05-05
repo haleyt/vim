@@ -306,6 +306,20 @@ static enum
 	maybe
 } soppie;
 
+public static enum
+{
+	yes = 0,
+	no,
+	maybe
+} soppie;
+
+static private enum
+{
+	yes = 0,
+	no,
+	maybe
+} soppie;
+
 {
 	int a,
 		b;
@@ -940,6 +954,18 @@ main ( int first_par, /*
 }
 
 
+main(void)
+{
+	/* Make sure that cino=X0s is not parsed like cino=Xs. */
+	if (cond)
+		foo();
+	else
+	{
+		bar();
+	}
+}
+
+
 {
 	do
 	{
@@ -1408,6 +1434,192 @@ void func(void)
 		} else
 			foo(0);
 	baz();
+}
+
+
+void func(void)
+{
+	if (condition1
+			&& condition2)
+		action();
+	function(argument1
+			 && argument2);
+
+	if (c1 && (c2 ||
+				c3))
+		foo;
+	if (c1 &&
+			(c2 || c3))
+	{
+	}
+
+	if (   c1
+			&& (      c2
+					  || c3))
+		foo;
+	func( c1
+		  && (     c2
+				   || c3))
+		foo;
+}
+
+
+void func(void)
+{
+	if (condition1
+			&& condition2)
+		action();
+	function(argument1
+		&& argument2);
+
+	if (c1 && (c2 ||
+				c3))
+		foo;
+	if (c1 &&
+			(c2 || c3))
+	{
+	}
+
+	if (   c1
+			&& (      c2
+				|| c3))
+		foo;
+	func(   c1
+		&& (      c2
+			|| c3))
+		foo;
+}
+
+
+void func(void)
+{
+	if (condition1
+			&& condition2)
+		action();
+	function(argument1
+		&& argument2);
+
+	if (c1 && (c2 ||
+				c3))
+		foo;
+	if (c1 &&
+			(c2 || c3))
+	{
+	}
+	if (c123456789
+			&& (c22345
+				|| c3))
+		printf("foo\n");
+
+	c = c1 &&
+		(
+			c2 ||
+			c3
+		) && c4;
+}
+
+
+void func(void)
+{
+	if (condition1
+			&& condition2)
+		action();
+	function(argument1
+			 && argument2);
+
+	if (c1 && (c2 ||
+				c3))
+		foo;
+	if (c1 &&
+			(c2 || c3))
+	{
+	}
+	if (c123456789
+			&& (c22345
+				|| c3))
+		printf("foo\n");
+
+	if (   c1
+			&& (   c2
+				   || c3))
+		foo;
+
+	a_long_line(
+		argument,
+		argument);
+	a_short_line(argument,
+				 argument);
+}
+
+
+void func(void)
+{
+	if (condition1
+			&& condition2)
+		action();
+	function(argument1
+			&& argument2);
+
+	if (c1 && (c2 ||
+			  c3))
+		foo;
+	if (c1 &&
+			(c2 || c3))
+	{
+	}
+	if (c123456789
+			&& (c22345
+			  || c3))
+		printf("foo\n");
+}
+
+
+void func(void)
+{
+	if (condition1
+			&& condition2)
+		action();
+	function(argument1
+			 && argument2);
+
+	if (c1 && (c2 ||
+				c3))
+		foo;
+	if (c1 &&
+			(c2 || c3))
+	{
+	}
+	if (c123456789
+			&& (c22345
+				|| c3))
+		printf("foo\n");
+
+	if (   c1
+			&& (      c2
+				|| c3))
+		foo;
+	func(   c1
+		 && (      c2
+			 || c3))
+		foo;
+}
+
+
+void func(void)
+{
+	if (condition1
+	  && condition2)
+		action();
+	function(argument1
+		&& argument2);
+
+	if (c1 && (c2 ||
+		  c3))
+		foo;
+	if (c1 &&
+	  (c2 || c3))
+	{
+	}
 }
 
 

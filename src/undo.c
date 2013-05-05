@@ -216,6 +216,7 @@ u_check(int newhead_may_be_NULL)
 
 /*
  * Save the current line for both the "u" and "U" command.
+ * Careful: may trigger autocommands that reload the buffer.
  * Returns OK or FAIL.
  */
     int
@@ -238,8 +239,9 @@ u_save(top, bot)
     if (undo_off)
 	return OK;
 
-    if (top > curbuf->b_ml.ml_line_count ||
-			    top >= bot || bot > curbuf->b_ml.ml_line_count + 1)
+    if (top > curbuf->b_ml.ml_line_count
+	    || top >= bot
+	    || bot > curbuf->b_ml.ml_line_count + 1)
 	return FALSE;	/* rely on caller to do error messages */
 
     if (top + 2 == bot)
@@ -1535,6 +1537,7 @@ write_error:
 	/* For systems that support ACL: get the ACL from the original file. */
 	acl = mch_get_acl(buf->b_ffname);
 	mch_set_acl(file_name, acl);
+	mch_free_acl(acl);
     }
 #endif
 
@@ -2879,11 +2882,8 @@ u_add_time(buf, buflen, tt)
 	if (time(NULL) - tt < (60L * 60L * 12L))
 	    /* within 12 hours */
 	    (void)strftime((char *)buf, buflen, "%H:%M:%S", curtime);
-	else if (time(NULL) - tt < (60L * 60L * 24L * 180L))
-	    /* within 6 months */
-	    (void)strftime((char *)buf, buflen, "%m/%d %H:%M:%S", curtime);
 	else
-	    /* long ago */
+	    /* longer ago */
 	    (void)strftime((char *)buf, buflen, "%Y/%m/%d %H:%M:%S", curtime);
     }
     else

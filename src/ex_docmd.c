@@ -1295,7 +1295,14 @@ do_cmdline(cmdline, fgetline, cookie, flags)
 		&& cstack.cs_trylevel == 0
 #endif
 	    )
-	    && !(did_emsg && used_getline
+	    && !(did_emsg
+#ifdef FEAT_EVAL
+		/* Keep going when inside try/catch, so that the error can be
+		 * dealth with, except when it is a syntax error, it may cause
+		 * the :endtry to be missed. */
+		&& (cstack.cs_trylevel == 0 || did_emsg_syntax)
+#endif
+		&& used_getline
 			    && (getline_equal(fgetline, cookie, getexmodeline)
 			       || getline_equal(fgetline, cookie, getexline)))
 	    && (next_cmdline != NULL
@@ -1305,6 +1312,7 @@ do_cmdline(cmdline, fgetline, cookie, flags)
 			|| (flags & DOCMD_REPEAT)));
 
     vim_free(cmdline_copy);
+    did_emsg_syntax = FALSE;
 #ifdef FEAT_EVAL
     free_cmdlines(&lines_ga);
     ga_clear(&lines_ga);
@@ -1520,7 +1528,9 @@ do_cmdline(cmdline, fgetline, cookie, flags)
 	}
     }
 
-#ifndef FEAT_EVAL
+#ifdef FEAT_EVAL
+    did_endif = FALSE;  /* in case do_cmdline used recursively */
+#else
     /*
      * Reset if_level, in case a sourced script file contains more ":if" than
      * ":endif" (could be ":if x | foo | endif").
@@ -1719,11 +1729,15 @@ do_one_cmd(cmdlinep, sourcing,
     ++ex_nesting_level;
 #endif
 
-	/* when not editing the last file :q has to be typed twice */
+    /* When the last file has not been edited :q has to be typed twice. */
     if (quitmore
 #ifdef FEAT_EVAL
 	    /* avoid that a function call in 'statusline' does this */
 	    && !getline_equal(fgetline, cookie, get_func_line)
+#endif
+#ifdef FEAT_AUTOCMD
+	    /* avoid that an autocommand, e.g. QuitPre, does this */
+	    && !getline_equal(fgetline, cookie, getnextac)
 #endif
 	    )
 	--quitmore;
@@ -2137,6 +2151,7 @@ do_one_cmd(cmdlinep, sourcing,
 	    if (!sourcing)
 		append_command(*cmdlinep);
 	    errormsg = IObuff;
+	    did_emsg_syntax = TRUE;
 	}
 	goto doend;
     }
@@ -2630,7 +2645,8 @@ do_one_cmd(cmdlinep, sourcing,
 	    while (p > ea.arg && vim_iswhite(p[-1]))
 		--p;
 	}
-	ea.line2 = buflist_findpat(ea.arg, p, (ea.argt & BUFUNL) != 0, FALSE);
+	ea.line2 = buflist_findpat(ea.arg, p, (ea.argt & BUFUNL) != 0,
+								FALSE, FALSE);
 	if (ea.line2 < 0)	    /* failed */
 	    goto doend;
 	ea.addr_count = 1;
@@ -3390,12 +3406,23 @@ set_one_cmd_context(xp, buff)
 	return NULL;
 
     /* Find start of last argument (argument just before cursor): */
-    p = buff + STRLEN(buff);
-    while (p != arg && *p != ' ' && *p != TAB)
-	p--;
-    if (*p == ' ' || *p == TAB)
-	p++;
+    p = buff;
     xp->xp_pattern = p;
+    len = (int)STRLEN(buff);
+    while (*p && p < buff + len)
+    {
+	if (*p == ' ' || *p == TAB)
+	{
+	    /* argument starts after a space */
+	    xp->xp_pattern = ++p;
+	}
+	else
+	{
+	    if (*p == '\\' && *(p + 1) != NUL)
+		++p; /* skip over escaped character */
+	    mb_ptr_adv(p);
+	}
+    }
 
     if (ea.argt & XFILE)
     {
@@ -3504,6 +3531,23 @@ set_one_cmd_context(xp, buff)
 #endif
 	    }
 	}
+#if defined(FEAT_CMDL_COMPL)
+	/* Check for user names */
+	if (*xp->xp_pattern == '~')
+	{
+	    for (p = xp->xp_pattern + 1; *p != NUL && *p != '/'; ++p)
+		;
+	    /* Complete ~user only if it partially matches a user name.
+	     * A full match ~user<Tab> will be replaced by user's home
+	     * directory i.e. something like ~user<Tab> -> /home/user/ */
+	    if (*p == NUL && p > xp->xp_pattern + 1
+				       && match_user(xp->xp_pattern + 1) == 1)
+	    {
+		xp->xp_context = EXPAND_USER;
+		++xp->xp_pattern;
+	    }
+	}
+#endif
     }
 
 /*
@@ -3821,8 +3865,17 @@ set_one_cmd_context(xp, buff)
 		    if (compl == EXPAND_MAPPINGS)
 			return set_context_in_map_cmd(xp, (char_u *)"map",
 					 arg, forceit, FALSE, FALSE, CMD_map);
-		    while ((xp->xp_pattern = vim_strchr(arg, ' ')) != NULL)
-			arg = xp->xp_pattern + 1;
+		    /* Find start of last argument. */
+		    p = arg;
+		    while (*p)
+		    {
+			if (*p == ' ')
+			    /* argument starts after a space */
+			    arg = p + 1;
+			else if (*p == '\\' && *(p + 1) != NUL)
+			    ++p; /* skip over escaped character */
+			mb_ptr_adv(p);
+		    }
 		    xp->xp_pattern = arg;
 		}
 		xp->xp_context = compl;
@@ -3920,7 +3973,15 @@ set_one_cmd_context(xp, buff)
 #endif
 	case CMD_behave:
 	    xp->xp_context = EXPAND_BEHAVE;
+	    xp->xp_pattern = arg;
 	    break;
+
+#if defined(FEAT_CMDHIST)
+	case CMD_history:
+	    xp->xp_context = EXPAND_HISTORY;
+	    xp->xp_pattern = arg;
+	    break;
+#endif
 
 #endif /* FEAT_CMDL_COMPL */
 
@@ -4955,7 +5016,7 @@ ex_abclear(eap)
     map_clear(eap->cmd, eap->arg, TRUE, TRUE);
 }
 
-#ifdef FEAT_AUTOCMD
+#if defined(FEAT_AUTOCMD) || defined(PROTO)
     static void
 ex_autocmd(eap)
     exarg_T	*eap;
@@ -4982,8 +5043,12 @@ ex_autocmd(eap)
 ex_doautocmd(eap)
     exarg_T	*eap;
 {
-    (void)do_doautocmd(eap->arg, TRUE);
-    do_modelines(0);
+    char_u	*arg = eap->arg;
+    int		call_do_modelines = check_nomodeline(&arg);
+
+    (void)do_doautocmd(arg, TRUE);
+    if (call_do_modelines)  /* Only when there is no <nomodeline>. */
+	do_modelines(0);
 }
 #endif
 
@@ -5313,7 +5378,9 @@ fail:
 #endif
     return FAIL;
 }
+#endif
 
+#if defined(FEAT_USR_CMDS) || defined(FEAT_EVAL) || defined(PROTO)
 /*
  * List of names for completion for ":command" with the EXPAND_ flag.
  * Must be alphabetical for completion.
@@ -5325,6 +5392,7 @@ static struct
 } command_complete[] =
 {
     {EXPAND_AUGROUP, "augroup"},
+    {EXPAND_BEHAVE, "behave"},
     {EXPAND_BUFFERS, "buffer"},
     {EXPAND_COLORS, "color"},
     {EXPAND_COMMANDS, "command"},
@@ -5346,8 +5414,11 @@ static struct
     {EXPAND_FUNCTIONS, "function"},
     {EXPAND_HELP, "help"},
     {EXPAND_HIGHLIGHT, "highlight"},
+#if defined(FEAT_CMDHIST)
+    {EXPAND_HISTORY, "history"},
+#endif
 #if (defined(HAVE_LOCALE_H) || defined(X_LOCALE)) \
-        && (defined(FEAT_GETTEXT) || defined(FEAT_MBYTE))
+	&& (defined(FEAT_GETTEXT) || defined(FEAT_MBYTE))
     {EXPAND_LOCALES, "locale"},
 #endif
     {EXPAND_MAPPINGS, "mapping"},
@@ -5360,10 +5431,13 @@ static struct
 #endif
     {EXPAND_TAGS, "tag"},
     {EXPAND_TAGS_LISTFILES, "tag_listfiles"},
+    {EXPAND_USER, "user"},
     {EXPAND_USER_VARS, "var"},
     {0, NULL}
 };
+#endif
 
+#if defined(FEAT_USR_CMDS) || defined(PROTO)
     static void
 uc_list(name, name_len)
     char_u	*name;
@@ -5829,8 +5903,14 @@ uc_split_args(arg, lenp)
 	}
 	else
 	{
+#ifdef FEAT_MBYTE
+	    int charlen = (*mb_ptr2len)(p);
+	    len += charlen;
+	    p += charlen;
+#else
 	    ++len;
 	    ++p;
+#endif
 	}
     }
 
@@ -5873,7 +5953,7 @@ uc_split_args(arg, lenp)
 	}
 	else
 	{
-	    *q++ = *p++;
+	    MB_COPY_CHAR(p, q);
 	}
     }
     *q++ = '"';
@@ -6302,10 +6382,12 @@ parse_compl_arg(value, vallen, complp, argt, compl_arg)
     int		vallen;
     int		*complp;
     long	*argt;
-    char_u	**compl_arg;
+    char_u	**compl_arg UNUSED;
 {
     char_u	*arg = NULL;
+# if defined(FEAT_EVAL) && defined(FEAT_CMDL_COMPL)
     size_t	arglen = 0;
+# endif
     int		i;
     int		valend = vallen;
 
@@ -6315,7 +6397,9 @@ parse_compl_arg(value, vallen, complp, argt, compl_arg)
 	if (value[i] == ',')
 	{
 	    arg = &value[i + 1];
+# if defined(FEAT_EVAL) && defined(FEAT_CMDL_COMPL)
 	    arglen = vallen - i - 1;
+# endif
 	    valend = i;
 	    break;
 	}
@@ -6397,7 +6481,7 @@ ex_colorscheme(eap)
 #endif
     }
     else if (load_colors(eap->arg) == FAIL)
-	EMSG2(_("E185: Cannot find color scheme %s"), eap->arg);
+	EMSG2(_("E185: Cannot find color scheme '%s'"), eap->arg);
 }
 
     static void
@@ -6442,7 +6526,10 @@ ex_quit(eap)
 	return;
     }
 #ifdef FEAT_AUTOCMD
-    if (curbuf_locked())
+    apply_autocmds(EVENT_QUITPRE, NULL, NULL, FALSE, curbuf);
+    /* Refuse to quit when locked or when the buffer in the last window is
+     * being closed (can only happen in autocommands). */
+    if (curbuf_locked() || (curbuf->b_nwindows == 1 && curbuf->b_closing))
 	return;
 #endif
 
@@ -6514,7 +6601,10 @@ ex_quit_all(eap)
 	return;
     }
 #ifdef FEAT_AUTOCMD
-    if (curbuf_locked())
+    apply_autocmds(EVENT_QUITPRE, NULL, NULL, FALSE, curbuf);
+    /* Refuse to quit when locked or when the buffer in the last window is
+     * being closed (can only happen in autocommands). */
+    if (curbuf_locked() || (curbuf->b_nwindows == 1 && curbuf->b_closing))
 	return;
 #endif
 
@@ -6850,7 +6940,10 @@ ex_exit(eap)
 	return;
     }
 #ifdef FEAT_AUTOCMD
-    if (curbuf_locked())
+    apply_autocmds(EVENT_QUITPRE, NULL, NULL, FALSE, curbuf);
+    /* Refuse to quit when locked or when the buffer in the last window is
+     * being closed (can only happen in autocommands). */
+    if (curbuf_locked() || (curbuf->b_nwindows == 1 && curbuf->b_closing))
 	return;
 #endif
 
@@ -7459,7 +7552,42 @@ ex_tabnext(eap)
 ex_tabmove(eap)
     exarg_T	*eap;
 {
-    tabpage_move(eap->addr_count == 0 ? 9999 : (int)eap->line2);
+    int tab_number = 9999;
+
+    if (eap->arg && *eap->arg != NUL)
+    {
+	char_u *p = eap->arg;
+	int    relative = 0; /* argument +N/-N means: move N places to the
+			      * right/left relative to the current position. */
+
+	if (*eap->arg == '-')
+	{
+	    relative = -1;
+	    p = eap->arg + 1;
+	}
+	else if (*eap->arg == '+')
+	{
+	    relative = 1;
+	    p = eap->arg + 1;
+	}
+	else
+	    p = eap->arg;
+
+	if (p == skipdigits(p))
+	{
+	    /* No numbers as argument. */
+	    eap->errmsg = e_invarg;
+	    return;
+	}
+
+	tab_number = getdigits(&p);
+	if (relative != 0)
+	    tab_number = tab_number * relative + tabpage_index(curtab) - 1;;
+    }
+    else if (eap->addr_count != 0)
+	tab_number = eap->line2;
+
+    tabpage_move(tab_number);
 }
 
 /*
@@ -7495,7 +7623,7 @@ ex_tabs(eap)
 	    msg_putchar(bufIsChanged(wp->w_buffer) ? '+' : ' ');
 	    msg_putchar(' ');
 	    if (buf_spname(wp->w_buffer) != NULL)
-		STRCPY(IObuff, buf_spname(wp->w_buffer));
+		vim_strncpy(IObuff, buf_spname(wp->w_buffer), IOSIZE - 1);
 	    else
 		home_replace(wp->w_buffer, wp->w_buffer->b_fname,
 							IObuff, IOSIZE, TRUE);
@@ -8529,7 +8657,7 @@ ex_join(eap)
 	}
 	++eap->line2;
     }
-    (void)do_join(eap->line2 - eap->line1 + 1, !eap->forceit, TRUE);
+    (void)do_join(eap->line2 - eap->line1 + 1, !eap->forceit, TRUE, TRUE);
     beginline(BL_WHITE | BL_FIX);
     ex_may_print(eap);
 }
@@ -10708,24 +10836,24 @@ put_view(fd, wp, add_edit, flagp, current_arg_idx)
 	    {
 		if (fprintf(fd,
 			  "let s:c = %ld - ((%ld * winwidth(0) + %ld) / %ld)",
-			    (long)wp->w_cursor.col,
-			    (long)(wp->w_cursor.col - wp->w_leftcol),
+			    (long)wp->w_virtcol + 1,
+			    (long)(wp->w_virtcol - wp->w_leftcol),
 			    (long)wp->w_width / 2, (long)wp->w_width) < 0
 			|| put_eol(fd) == FAIL
 			|| put_line(fd, "if s:c > 0") == FAIL
 			|| fprintf(fd,
-			    "  exe 'normal! 0' . s:c . 'lzs' . (%ld - s:c) . 'l'",
-			    (long)wp->w_cursor.col) < 0
+			    "  exe 'normal! ' . s:c . '|zs' . %ld . '|'",
+			    (long)wp->w_virtcol + 1) < 0
 			|| put_eol(fd) == FAIL
 			|| put_line(fd, "else") == FAIL
-			|| fprintf(fd, "  normal! 0%dl", wp->w_cursor.col) < 0
+			|| fprintf(fd, "  normal! 0%d|", wp->w_virtcol + 1) < 0
 			|| put_eol(fd) == FAIL
 			|| put_line(fd, "endif") == FAIL)
 		    return FAIL;
 	    }
 	    else
 	    {
-		if (fprintf(fd, "normal! 0%dl", wp->w_cursor.col) < 0
+		if (fprintf(fd, "normal! 0%d|", wp->w_virtcol + 1) < 0
 			|| put_eol(fd) == FAIL)
 		    return FAIL;
 	    }

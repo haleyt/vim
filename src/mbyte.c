@@ -613,7 +613,7 @@ codepage_invalid:
     enc_dbcs = enc_dbcs_new;
     has_mbyte = (enc_dbcs != 0 || enc_utf8);
 
-#ifdef WIN3264
+#if defined(WIN3264) || defined(FEAT_CYGWIN_WIN32_CLIPBOARD)
     enc_codepage = encname2codepage(p_enc);
     enc_latin9 = (STRCMP(p_enc, "iso-8859-15") == 0);
 #endif
@@ -708,7 +708,7 @@ codepage_invalid:
 	     */
 	    n = (i & 0x80) ? 2 : 1;
 # else
-	    char buf[MB_MAXBYTES];
+	    char buf[MB_MAXBYTES + 1];
 # ifdef X_LOCALE
 #  ifndef mblen
 #   define mblen _Xmblen
@@ -869,11 +869,19 @@ remove_bom(s)
 mb_get_class(p)
     char_u	*p;
 {
+    return mb_get_class_buf(p, curbuf);
+}
+
+    int
+mb_get_class_buf(p, buf)
+    char_u	*p;
+    buf_T	*buf;
+{
     if (MB_BYTE2LEN(p[0]) == 1)
     {
 	if (p[0] == NUL || vim_iswhite(p[0]))
 	    return 0;
-	if (vim_iswordc(p[0]))
+	if (vim_iswordc_buf(p[0], buf))
 	    return 2;
 	return 1;
     }
@@ -1953,7 +1961,7 @@ utfc_ptr2char_len(p, pcc, maxlen)
 /*
  * Convert the character at screen position "off" to a sequence of bytes.
  * Includes the composing characters.
- * "buf" must at least have the length MB_MAXBYTES.
+ * "buf" must at least have the length MB_MAXBYTES + 1.
  * Only to be used when ScreenLinesUC[off] != 0.
  * Returns the produced number of bytes.
  */
@@ -2949,7 +2957,7 @@ static convertStruct toUpper[] =
 {
 	{0x61,0x7a,1,-32},
 	{0xb5,0xb5,-1,743},
-	{0xe0,0xf6,1,-32},
+	{0xe0,0xf6,1,-32},  /* 0xdf (German sharp s) is not upper-cased */
 	{0xf8,0xfe,1,-32},
 	{0xff,0xff,-1,121},
 	{0x101,0x12f,2,-1},
@@ -3129,7 +3137,8 @@ utf_toupper(a)
 utf_islower(a)
     int		a;
 {
-    return (utf_toupper(a) != a);
+    /* German sharp s is lower case but has no upper case equivalent. */
+    return (utf_toupper(a) != a) || a == 0xdf;
 }
 
 /*
@@ -3241,7 +3250,7 @@ utf_strnicmp(s1, s2, n1, n2)
 
 /*
  * Version of strnicmp() that handles multi-byte characters.
- * Needed for Big5, Sjift-JIS and UTF-8 encoding.  Other DBCS encodings can
+ * Needed for Big5, Shift-JIS and UTF-8 encoding.  Other DBCS encodings can
  * probably use strnicmp(), because there are no ASCII characters in the
  * second byte.
  * Returns zero if s1 and s2 are equal (ignoring case), the difference between
@@ -3792,13 +3801,15 @@ mb_charlen_len(str, len)
 mb_unescape(pp)
     char_u **pp;
 {
-    static char_u	buf[MB_MAXBYTES + 1];
-    int			n, m = 0;
+    static char_u	buf[6];
+    int			n;
+    int			m = 0;
     char_u		*str = *pp;
 
     /* Must translate K_SPECIAL KS_SPECIAL KE_FILLER to K_SPECIAL and CSI
-     * KS_EXTRA KE_CSI to CSI. */
-    for (n = 0; str[n] != NUL && m <= MB_MAXBYTES; ++n)
+     * KS_EXTRA KE_CSI to CSI.
+     * Maximum length of a utf-8 character is 4 bytes. */
+    for (n = 0; str[n] != NUL && m < 4; ++n)
     {
 	if (str[n] == K_SPECIAL
 		&& str[n + 1] == KS_SPECIAL
@@ -3835,6 +3846,10 @@ mb_unescape(pp)
 	    *pp = str + n + 1;
 	    return buf;
 	}
+
+	/* Bail out quickly for ASCII. */
+	if (buf[0] < 128)
+	    break;
     }
     return NULL;
 }
@@ -4074,7 +4089,7 @@ enc_locale()
     return enc_canonize((char_u *)buf);
 }
 
-#if defined(WIN3264) || defined(PROTO)
+#if defined(WIN3264) || defined(PROTO) || defined(FEAT_CYGWIN_WIN32_CLIPBOARD)
 /*
  * Convert an encoding name to an MS-Windows codepage.
  * Returns zero if no codepage can be figured out.
@@ -4287,6 +4302,47 @@ static HINSTANCE hMsvcrtDLL = 0;
 #  endif
 
 /*
+ * Get the address of 'funcname' which is imported by 'hInst' DLL.
+ */
+    static void *
+get_iconv_import_func(HINSTANCE hInst, const char *funcname)
+{
+    PBYTE			pImage = (PBYTE)hInst;
+    PIMAGE_DOS_HEADER		pDOS = (PIMAGE_DOS_HEADER)hInst;
+    PIMAGE_NT_HEADERS		pPE;
+    PIMAGE_IMPORT_DESCRIPTOR	pImpDesc;
+    PIMAGE_THUNK_DATA		pIAT;	    /* Import Address Table */
+    PIMAGE_THUNK_DATA		pINT;	    /* Import Name Table */
+    PIMAGE_IMPORT_BY_NAME	pImpName;
+
+    if (pDOS->e_magic != IMAGE_DOS_SIGNATURE)
+	return NULL;
+    pPE = (PIMAGE_NT_HEADERS)(pImage + pDOS->e_lfanew);
+    if (pPE->Signature != IMAGE_NT_SIGNATURE)
+	return NULL;
+    pImpDesc = (PIMAGE_IMPORT_DESCRIPTOR)(pImage
+	    + pPE->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]
+							    .VirtualAddress);
+    for (; pImpDesc->FirstThunk; ++pImpDesc)
+    {
+	if (!pImpDesc->OriginalFirstThunk)
+	    continue;
+	pIAT = (PIMAGE_THUNK_DATA)(pImage + pImpDesc->FirstThunk);
+	pINT = (PIMAGE_THUNK_DATA)(pImage + pImpDesc->OriginalFirstThunk);
+	for (; pIAT->u1.Function; ++pIAT, ++pINT)
+	{
+	    if (IMAGE_SNAP_BY_ORDINAL(pINT->u1.Ordinal))
+		continue;
+	    pImpName = (PIMAGE_IMPORT_BY_NAME)(pImage
+					+ (UINT_PTR)(pINT->u1.AddressOfData));
+	    if (strcmp(pImpName->Name, funcname) == 0)
+		return (void *)pIAT->u1.Function;
+	}
+    }
+    return NULL;
+}
+
+/*
  * Try opening the iconv.dll and return TRUE if iconv() can be used.
  */
     int
@@ -4319,7 +4375,9 @@ iconv_enabled(verbose)
     iconv_open	= (void *)GetProcAddress(hIconvDLL, "libiconv_open");
     iconv_close	= (void *)GetProcAddress(hIconvDLL, "libiconv_close");
     iconvctl	= (void *)GetProcAddress(hIconvDLL, "libiconvctl");
-    iconv_errno	= (void *)GetProcAddress(hMsvcrtDLL, "_errno");
+    iconv_errno	= get_iconv_import_func(hIconvDLL, "_errno");
+    if (iconv_errno == NULL)
+	iconv_errno = (void *)GetProcAddress(hMsvcrtDLL, "_errno");
     if (iconv == NULL || iconv_open == NULL || iconv_close == NULL
 	    || iconvctl == NULL || iconv_errno == NULL)
     {
@@ -4504,7 +4562,8 @@ im_show_info(void)
     vgetc_busy = TRUE;
     showmode();
     vgetc_busy = old_vgetc_busy;
-    setcursor();
+    if ((State & NORMAL) || (State & INSERT))
+	setcursor();
     out_flush();
 }
 
@@ -6197,8 +6256,23 @@ string_convert_ext(vcp, ptr, lenp, unconvlenp)
 	    if (vcp->vc_cpfrom == 0)
 		tmp_len = utf8_to_utf16(ptr, len, NULL, NULL);
 	    else
-		tmp_len = MultiByteToWideChar(vcp->vc_cpfrom, 0,
-							      ptr, len, 0, 0);
+	    {
+		tmp_len = MultiByteToWideChar(vcp->vc_cpfrom,
+					unconvlenp ? MB_ERR_INVALID_CHARS : 0,
+					ptr, len, 0, 0);
+		if (tmp_len == 0
+			&& GetLastError() == ERROR_NO_UNICODE_TRANSLATION)
+		{
+		    if (lenp != NULL)
+			*lenp = 0;
+		    if (unconvlenp != NULL)
+			*unconvlenp = len;
+		    retval = alloc(1);
+		    if (retval)
+			retval[0] = NUL;
+		    return retval;
+		}
+	    }
 	    tmp = (short_u *)alloc(sizeof(short_u) * tmp_len);
 	    if (tmp == NULL)
 		break;

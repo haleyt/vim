@@ -1,36 +1,24 @@
-*** src/testdir/Makefile	2011-07-15 21:16:54.000000000 +0200
---- Makefile	2011-10-12 17:39:03.000000000 +0200
+*** src/po/Makefile	2013-01-30 12:50:50.000000000 +0100
+--- Makefile	2013-04-27 14:04:45.000000000 +0200
 ***************
-*** 26,32 ****
-  		test64.out test65.out test66.out test67.out test68.out \
-  		test69.out test70.out test71.out test72.out test73.out \
-  		test74.out test75.out test76.out test77.out test78.out \
-! 		test79.out test80.out test81.out test82.out
+*** 176,184 ****
   
-  SCRIPTS_GUI = test16.out
+  converted: $(MOCONVERTED)
   
---- 26,32 ----
-  		test64.out test65.out test66.out test67.out test68.out \
-  		test69.out test70.out test71.out test72.out test73.out \
-  		test74.out test75.out test76.out test77.out test78.out \
-! 		test79.out test80.out test81.out test82.out test83.out
+! # nl.po was added later, if it does not exist use an empty file.
+  nl.po:
+! 	touch nl.po
   
-  SCRIPTS_GUI = test16.out
+  # Norwegian/Bokmal: "nb" is an alias for "no".
+  # Copying the file is not efficient, but I don't know of another way to make
+--- 176,185 ----
   
-***************
-*** 72,78 ****
-  		  fi \
-  		else echo $* NO OUTPUT >>test.log; \
-  		fi"
-! 	-rm -rf X* test.ok viminfo
+  converted: $(MOCONVERTED)
   
-  test49.out: test49.vim
+! # nl.po was added later, if it does not exist use a file with just a # in it
+! # (an empty file doesn't work with old msgfmt).
+  nl.po:
+! 	@( echo \# > nl.po )
   
---- 72,78 ----
-  		  fi \
-  		else echo $* NO OUTPUT >>test.log; \
-  		fi"
-! #	-rm -rf X* test.ok viminfo
-  
-  test49.out: test49.vim
-  
+  # Norwegian/Bokmal: "nb" is an alias for "no".
+  # Copying the file is not efficient, but I don't know of another way to make

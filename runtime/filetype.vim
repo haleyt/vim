@@ -2475,16 +2475,18 @@ au BufNewFile,BufRead zsh*,zlog*		call s:StarSetf('zsh')
 " detected filetypes.
 runtime! ftdetect/*.vim
 
+" NOTE: The above command could have ended the filetypedetect autocmd group
+" and started another one. Let's make sure it has ended to get to a consistant
+" state.
+augroup END
 
 " Generic configuration file (check this last, it's just guessing!)
-au BufNewFile,BufRead,StdinReadPost *
+au filetypedetect BufNewFile,BufRead,StdinReadPost *
 	\ if !did_filetype() && expand("<amatch>") !~ g:ft_ignore_pat
 	\    && (getline(1) =~ '^#' || getline(2) =~ '^#' || getline(3) =~ '^#'
 	\	|| getline(4) =~ '^#' || getline(5) =~ '^#') |
 	\   setf conf |
 	\ endif
-
-augroup END
 
 
 " If the GUI is already running, may still need to install the Syntax menu.

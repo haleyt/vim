@@ -1380,6 +1380,8 @@ retry:
 # endif
 			   )
 			{
+			    if (can_retry)
+				goto rewind_retry;
 			    if (conv_error == 0)
 				conv_error = curbuf->b_ml.ml_line_count
 								- linecnt + 1;
@@ -2654,10 +2656,6 @@ failed:
 # endif
     }
 #endif
-
-    /* Reset now, following writes should not omit the EOL.  Also, the line
-     * number will become invalid because of edits. */
-    curbuf->b_no_eol_lnum = 0;
 
     if (recoverymode && error)
 	return FAIL;
@@ -5098,6 +5096,8 @@ nofail:
     {
 	aco_save_T	aco;
 
+	curbuf->b_no_eol_lnum = 0;  /* in case it was set by the previous read */
+
 	/*
 	 * Apply POST autocommands.
 	 * Careful: The autocommands may call buf_write() recursively!
@@ -6487,9 +6487,7 @@ vim_rename(from, to)
 #ifdef HAVE_ACL
     vim_acl_T	acl;		/* ACL from original file */
 #endif
-#if defined(UNIX) || defined(CASE_INSENSITIVE_FILENAME)
     int		use_tmp_file = FALSE;
-#endif
 
     /*
      * When the names are identical, there is nothing to do.  When they refer
@@ -6498,11 +6496,9 @@ vim_rename(from, to)
      */
     if (fnamecmp(from, to) == 0)
     {
-#ifdef CASE_INSENSITIVE_FILENAME
-	if (STRCMP(gettail(from), gettail(to)) != 0)
+	if (p_fic && STRCMP(gettail(from), gettail(to)) != 0)
 	    use_tmp_file = TRUE;
 	else
-#endif
 	    return 0;
     }
 
@@ -6541,7 +6537,6 @@ vim_rename(from, to)
     }
 #endif
 
-#if defined(UNIX) || defined(CASE_INSENSITIVE_FILENAME)
     if (use_tmp_file)
     {
 	char	tempname[MAXPATHL + 1];
@@ -6574,7 +6569,6 @@ vim_rename(from, to)
 	}
 	return -1;
     }
-#endif
 
     /*
      * Delete the "to" file, this is required on some systems to make the
@@ -7062,8 +7056,23 @@ buf_check_timestamp(buf, focus)
     }
 
     if (reload)
+    {
 	/* Reload the buffer. */
 	buf_reload(buf, orig_mode);
+#ifdef FEAT_PERSISTENT_UNDO
+	if (buf->b_p_udf && buf->b_ffname != NULL)
+	{
+	    char_u	    hash[UNDO_HASH_SIZE];
+	    buf_T	    *save_curbuf = curbuf;
+
+	    /* Any existing undo file is unusable, write it now. */
+	    curbuf = buf;
+	    u_compute_hash(hash);
+	    u_write_undo(NULL, FALSE, buf, hash);
+	    curbuf = save_curbuf;
+	}
+#endif
+    }
 
 #ifdef FEAT_AUTOCMD
     /* Trigger FileChangedShell when the file was changed in any way. */
@@ -7230,6 +7239,9 @@ buf_reload(buf, orig_mode)
 	 * reset it, might have had a read error. */
 	if (orig_mode == curbuf->b_orig_mode)
 	    curbuf->b_p_ro |= old_ro;
+
+	/* Modelines must override settings done by autocommands. */
+	do_modelines(0);
     }
 
     /* restore curwin/curbuf and a few other things */
@@ -7645,6 +7657,7 @@ static struct event_name
     {"CmdwinEnter",	EVENT_CMDWINENTER},
     {"CmdwinLeave",	EVENT_CMDWINLEAVE},
     {"ColorScheme",	EVENT_COLORSCHEME},
+    {"CompleteDone",	EVENT_COMPLETEDONE},
     {"CursorHold",	EVENT_CURSORHOLD},
     {"CursorHoldI",	EVENT_CURSORHOLDI},
     {"CursorMoved",	EVENT_CURSORMOVED},
@@ -7680,6 +7693,7 @@ static struct event_name
     {"MenuPopup",	EVENT_MENUPOPUP},
     {"QuickFixCmdPost",	EVENT_QUICKFIXCMDPOST},
     {"QuickFixCmdPre",	EVENT_QUICKFIXCMDPRE},
+    {"QuitPre",		EVENT_QUITPRE},
     {"RemoteReply",	EVENT_REMOTEREPLY},
     {"SessionLoadPost",	EVENT_SESSIONLOADPOST},
     {"ShellCmdPost",	EVENT_SHELLCMDPOST},
@@ -7695,6 +7709,8 @@ static struct event_name
     {"TabLeave",	EVENT_TABLEAVE},
     {"TermChanged",	EVENT_TERMCHANGED},
     {"TermResponse",	EVENT_TERMRESPONSE},
+    {"TextChanged",	EVENT_TEXTCHANGED},
+    {"TextChangedI",	EVENT_TEXTCHANGEDI},
     {"User",		EVENT_USER},
     {"VimEnter",	EVENT_VIMENTER},
     {"VimLeave",	EVENT_VIMLEAVE},
@@ -7759,7 +7775,6 @@ static char_u *find_end_event __ARGS((char_u *arg, int have_group));
 static int event_ignored __ARGS((event_T event));
 static int au_get_grouparg __ARGS((char_u **argp));
 static int do_autocmd_event __ARGS((event_T event, char_u *pat, int nested, char_u *cmd, int forceit, int group));
-static char_u *getnextac __ARGS((int c, void *cookie, int indent));
 static int apply_autocmds_group __ARGS((event_T event, char_u *fname, char_u *fname_io, int force, int group, buf_T *buf, exarg_T *eap));
 static void auto_next_pat __ARGS((AutoPatCmd *apc, int stop_at_last));
 
@@ -8739,6 +8754,8 @@ ex_doautoall(eap)
     int		retval;
     aco_save_T	aco;
     buf_T	*buf;
+    char_u	*arg = eap->arg;
+    int		call_do_modelines = check_nomodeline(&arg);
 
     /*
      * This is a bit tricky: For some commands curwin->w_buffer needs to be
@@ -8755,11 +8772,15 @@ ex_doautoall(eap)
 	    aucmd_prepbuf(&aco, buf);
 
 	    /* execute the autocommands for this buffer */
-	    retval = do_doautocmd(eap->arg, FALSE);
+	    retval = do_doautocmd(arg, FALSE);
 
-	    /* Execute the modeline settings, but don't set window-local
-	     * options if we are using the current window for another buffer. */
-	    do_modelines(curwin == aucmd_win ? OPT_NOWIN : 0);
+	    if (call_do_modelines)
+	    {
+		/* Execute the modeline settings, but don't set window-local
+		 * options if we are using the current window for another
+		 * buffer. */
+		do_modelines(curwin == aucmd_win ? OPT_NOWIN : 0);
+	    }
 
 	    /* restore the current window */
 	    aucmd_restbuf(&aco);
@@ -8771,6 +8792,23 @@ ex_doautoall(eap)
     }
 
     check_cursor();	    /* just in case lines got deleted */
+}
+
+/*
+ * Check *argp for <nomodeline>.  When it is present return FALSE, otherwise
+ * return TRUE and advance *argp to after it.
+ * Thus return TRUE when do_modelines() should be called.
+ */
+    int
+check_nomodeline(argp)
+    char_u **argp;
+{
+    if (STRNCMP(*argp, "<nomodeline>", 12) == 0)
+    {
+	*argp = skipwhite(*argp + 12);
+	return FALSE;
+    }
+    return TRUE;
 }
 
 /*
@@ -8896,12 +8934,13 @@ aucmd_restbuf(aco)
 		if (wp == aucmd_win)
 		{
 		    if (tp != curtab)
-			goto_tabpage_tp(tp);
+			goto_tabpage_tp(tp, TRUE);
 		    win_goto(aucmd_win);
-		    break;
+		    goto win_found;
 		}
 	    }
 	}
+win_found:
 
 	/* Remove the window and frame from the tree of frames. */
 	(void)winframe_remove(curwin, &dummy, NULL);
@@ -8918,8 +8957,8 @@ aucmd_restbuf(aco)
 	    /* Hmm, original window disappeared.  Just use the first one. */
 	    curwin = firstwin;
 # ifdef FEAT_EVAL
-	vars_clear(&aucmd_win->w_vars.dv_hashtab);  /* free all w: variables */
-	hash_init(&aucmd_win->w_vars.dv_hashtab);   /* re-use the hashtab */
+	vars_clear(&aucmd_win->w_vars->dv_hashtab);  /* free all w: variables */
+	hash_init(&aucmd_win->w_vars->dv_hashtab);   /* re-use the hashtab */
 # endif
 #else
 	curwin = aco->save_curwin;
@@ -8960,6 +8999,10 @@ aucmd_restbuf(aco)
 		    && buf_valid(aco->new_curbuf)
 		    && aco->new_curbuf->b_ml.ml_mfp != NULL)
 	    {
+# if defined(FEAT_SYN_HL) || defined(FEAT_SPELL)
+		if (curwin->w_s == &curbuf->b_s)
+		    curwin->w_s = &aco->new_curbuf->b_s;
+# endif
 		--curbuf->b_nwindows;
 		curbuf = aco->new_curbuf;
 		curwin->w_buffer = curbuf;
@@ -9090,6 +9133,33 @@ has_cursormoved()
 has_cursormovedI()
 {
     return (first_autopat[(int)EVENT_CURSORMOVEDI] != NULL);
+}
+
+/*
+ * Return TRUE when there is a TextChanged autocommand defined.
+ */
+    int
+has_textchanged()
+{
+    return (first_autopat[(int)EVENT_TEXTCHANGED] != NULL);
+}
+
+/*
+ * Return TRUE when there is a TextChangedI autocommand defined.
+ */
+    int
+has_textchangedI()
+{
+    return (first_autopat[(int)EVENT_TEXTCHANGEDI] != NULL);
+}
+
+/*
+ * Return TRUE when there is an InsertCharPre autocommand defined.
+ */
+    int
+has_insertcharpre()
+{
+    return (first_autopat[(int)EVENT_INSERTCHARPRE] != NULL);
 }
 
     static int
@@ -9561,7 +9631,7 @@ auto_next_pat(apc, stop_at_last)
  * Called by do_cmdline() to get the next line for ":if".
  * Returns allocated string, or NULL for end of autocommands.
  */
-    static char_u *
+    char_u *
 getnextac(c, cookie, indent)
     int	    c UNUSED;
     void    *cookie;
@@ -9933,11 +10003,7 @@ match_file_pat(pattern, prog, fname, sfname, tail, allow_dirs)
     int		match = FALSE;
 #endif
 
-#ifdef CASE_INSENSITIVE_FILENAME
-    regmatch.rm_ic = TRUE;		/* Always ignore case */
-#else
-    regmatch.rm_ic = FALSE;		/* Don't ever ignore case */
-#endif
+    regmatch.rm_ic = p_fic; /* ignore case if 'fileignorecase' is set */
 #ifdef FEAT_OSFILETYPE
     if (*pattern == '<')
     {

@@ -1042,6 +1042,10 @@ if has("wildignore")
   call append("$", "wildignore\tlist of patterns to ignore files for file name completion")
   call <SID>OptionG("wig", &wig)
 endif
+call append("$", "fileignorecase\tignore case when using file names")
+call <SID>BinOptionG("fic", &fic)
+call append("$", "wildignorecase\tignore case when completing file names")
+call <SID>BinOptionG("wic", &wic)
 if has("wildmenu")
   call append("$", "wildmenu\tcommand-line completion shows a list of matches")
   call <SID>BinOptionG("wmnu", &wmnu)
@@ -1340,3 +1344,5 @@ let &ru = s:old_ru
 let &sc = s:old_sc
 let &cpo = s:cpo_save
 unlet s:old_title s:old_icon s:old_ru s:old_sc s:cpo_save s:idx s:lnum
+
+" vim: ts=8 sw=2 sts=2
