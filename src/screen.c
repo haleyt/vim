@@ -764,9 +764,13 @@ update_debug_sign(buf, lnum)
 	    doit = TRUE;
     }
 
-    /* Return when there is nothing to do or screen updating already
-     * happening. */
-    if (!doit || updating_screen)
+    /* Return when there is nothing to do, screen updating is already
+     * happening (recursive call) or still starting up. */
+    if (!doit || updating_screen
+#ifdef FEAT_GUI
+	    || gui.starting
+#endif
+	    || starting)
 	return;
 
     /* update all windows that need updating */
@@ -1633,11 +1637,11 @@ win_update(wp)
 	     * When at start of changed lines: May scroll following lines
 	     * up or down to minimize redrawing.
 	     * Don't do this when the change continues until the end.
-	     * Don't scroll when dollar_vcol is non-zero, keep the "$".
+	     * Don't scroll when dollar_vcol >= 0, keep the "$".
 	     */
 	    if (lnum == mod_top
 		    && mod_bot != MAXLNUM
-		    && !(dollar_vcol != 0 && mod_bot == mod_top + 1))
+		    && !(dollar_vcol >= 0 && mod_bot == mod_top + 1))
 	    {
 		int		old_rows = 0;
 		int		new_rows = 0;
@@ -1864,12 +1868,12 @@ win_update(wp)
 	    if (row > wp->w_height)	/* past end of screen */
 	    {
 		/* we may need the size of that too long line later on */
-		if (dollar_vcol == 0)
+		if (dollar_vcol == -1)
 		    wp->w_lines[idx].wl_size = plines_win(wp, lnum, TRUE);
 		++idx;
 		break;
 	    }
-	    if (dollar_vcol == 0)
+	    if (dollar_vcol == -1)
 		wp->w_lines[idx].wl_size = row - srow;
 	    ++idx;
 #ifdef FEAT_FOLDING
@@ -1986,7 +1990,7 @@ win_update(wp)
 	    }
 #endif
 	}
-	else if (dollar_vcol == 0)
+	else if (dollar_vcol == -1)
 	    wp->w_botline = lnum;
 
 	/* make sure the rest of the screen is blank */
@@ -2001,7 +2005,7 @@ win_update(wp)
     wp->w_old_botfill = wp->w_botfill;
 #endif
 
-    if (dollar_vcol == 0)
+    if (dollar_vcol == -1)
     {
 	/*
 	 * There is a trick with w_botline.  If we invalidate it on each
@@ -2317,7 +2321,7 @@ fold_line(wp, fold_count, foldinfo, lnum, row)
 		num = (long)lnum;
 	    else
 		/* 'relativenumber', don't use negative numbers */
-		num = (long)abs((int)get_cursor_rel_lnum(wp, lnum));
+		num = labs((long)get_cursor_rel_lnum(wp, lnum));
 
 	    sprintf((char *)buf, "%*ld ", w, num);
 #ifdef FEAT_RIGHTLEFT
@@ -2531,7 +2535,9 @@ fold_line(wp, fold_count, foldinfo, lnum, row)
 		/* Visual block mode: highlight the chars part of the block */
 		if (wp->w_old_cursor_fcol + txtcol < (colnr_T)W_WIDTH(wp))
 		{
-		    if (wp->w_old_cursor_lcol + txtcol < (colnr_T)W_WIDTH(wp))
+		    if (wp->w_old_cursor_lcol != MAXCOL
+			     && wp->w_old_cursor_lcol + txtcol
+						       < (colnr_T)W_WIDTH(wp))
 			len = wp->w_old_cursor_lcol;
 		    else
 			len = W_WIDTH(wp) - txtcol;
@@ -3405,9 +3411,9 @@ win_line(wp, lnum, startrow, endrow, nochange)
 # endif
 		   )
 		{
-		    int_u	text_sign;
+		    int	text_sign;
 # ifdef FEAT_SIGN_ICONS
-		    int_u	icon_sign;
+		    int	icon_sign;
 # endif
 
 		    /* Draw two cells with the sign value or blank. */
@@ -3475,8 +3481,7 @@ win_line(wp, lnum, startrow, endrow, nochange)
 			    num = (long)lnum;
 			else
 			    /* 'relativenumber', don't use negative numbers */
-			    num = (long)abs((int)get_cursor_rel_lnum(wp,
-								    lnum));
+			    num = labs((long)get_cursor_rel_lnum(wp, lnum));
 
 			sprintf((char *)extra, "%*ld ",
 						number_width(wp), num);
@@ -3559,7 +3564,7 @@ win_line(wp, lnum, startrow, endrow, nochange)
 	}
 
 	/* When still displaying '$' of change command, stop at cursor */
-	if (dollar_vcol != 0 && wp == curwin
+	if (dollar_vcol >= 0 && wp == curwin
 		   && lnum == wp->w_cursor.lnum && vcol >= (long)wp->w_virtcol
 #ifdef FEAT_DIFF
 				   && filler_todo <= 0
@@ -4253,7 +4258,7 @@ win_line(wp, lnum, startrow, endrow, nochange)
 		{
 		    /* tab amount depends on current column */
 		    n_extra = (int)wp->w_buffer->b_p_ts
-				   - vcol % (int)wp->w_buffer->b_p_ts - 1;
+				   - VCOL_HLC % (int)wp->w_buffer->b_p_ts - 1;
 #ifdef FEAT_MBYTE
 		    mb_utf8 = FALSE;	/* don't draw as UTF-8 */
 #endif
@@ -6436,6 +6441,8 @@ win_redr_custom(wp, draw_ruler)
     struct	stl_hlrec hltab[STL_MAX_ITEM];
     struct	stl_hlrec tabtab[STL_MAX_ITEM];
     int		use_sandbox = FALSE;
+    win_T	*ewp;
+    int		p_crb_save;
 
     /* setup environment for the task at hand */
     if (wp == NULL)
@@ -6514,16 +6521,31 @@ win_redr_custom(wp, draw_ruler)
     if (maxwidth <= 0)
 	return;
 
+    /* Temporarily reset 'cursorbind', we don't want a side effect from moving
+     * the cursor away and back. */
+    ewp = wp == NULL ? curwin : wp;
+    p_crb_save = ewp->w_p_crb;
+    ewp->w_p_crb = FALSE;
+
     /* Make a copy, because the statusline may include a function call that
      * might change the option value and free the memory. */
     stl = vim_strsave(stl);
-    width = build_stl_str_hl(wp == NULL ? curwin : wp,
-				buf, sizeof(buf),
+    width = build_stl_str_hl(ewp, buf, sizeof(buf),
 				stl, use_sandbox,
 				fillchar, maxwidth, hltab, tabtab);
     vim_free(stl);
-    len = (int)STRLEN(buf);
+    ewp->w_p_crb = p_crb_save;
 
+    /* Make all characters printable. */
+    p = transstr(buf);
+    if (p != NULL)
+    {
+	vim_strncpy(buf, p, sizeof(buf) - 1);
+	vim_free(p);
+    }
+
+    /* fill up with "fillchar" */
+    len = (int)STRLEN(buf);
     while (width < maxwidth && len < (int)sizeof(buf) - 1)
     {
 #ifdef FEAT_MBYTE
@@ -7827,15 +7849,15 @@ check_for_delay(check_msg_scroll)
 
 /*
  * screen_valid -  allocate screen buffers if size changed
- *   If "clear" is TRUE: clear screen if it has been resized.
+ *   If "doclear" is TRUE: clear screen if it has been resized.
  *	Returns TRUE if there is a valid screen to write to.
  *	Returns FALSE when starting up and screen not initialized yet.
  */
     int
-screen_valid(clear)
-    int	    clear;
+screen_valid(doclear)
+    int	    doclear;
 {
-    screenalloc(clear);	    /* allocate screen buffers if size changed */
+    screenalloc(doclear);	   /* allocate screen buffers if size changed */
     return (ScreenLines != NULL);
 }
 
@@ -7850,8 +7872,8 @@ screen_valid(clear)
  * final size of the shell is needed.
  */
     void
-screenalloc(clear)
-    int	    clear;
+screenalloc(doclear)
+    int	    doclear;
 {
     int		    new_row, old_row;
 #ifdef FEAT_GUI
@@ -8047,7 +8069,7 @@ give_up:
 	     * (used when resizing the window at the "--more--" prompt or when
 	     * executing an external command, for the GUI).
 	     */
-	    if (!clear)
+	    if (!doclear)
 	    {
 		(void)vim_memset(new_ScreenLines + new_row * Columns,
 				      ' ', (size_t)Columns * sizeof(schar_T));
@@ -8137,7 +8159,7 @@ give_up:
     screen_Columns = Columns;
 
     must_redraw = CLEAR;	/* need to clear the screen later */
-    if (clear)
+    if (doclear)
 	screenclear2();
 
 #ifdef FEAT_GUI

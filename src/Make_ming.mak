@@ -56,6 +56,12 @@ CSCOPE=yes
 NETBEANS=$(GUI)
 
 
+# Link against the shared version of libstdc++ by default.  Set
+# STATIC_STDCPLUS to "yes" to link against static version instead.
+ifndef STATIC_STDCPLUS
+STATIC_STDCPLUS=no
+endif
+
 # If the user doesn't want gettext, undefine it.
 ifeq (no, $(GETTEXT))
 GETTEXT=
@@ -81,7 +87,7 @@ INTLLIB=gnu_gettext
 
 # If you are using gettext-0.10.35 from http://sourceforge.net/projects/gettext
 # or gettext-0.10.37 from http://sourceforge.net/projects/mingwrep/
-# uncomment the following, but I can't build a static versión with them, ?-(|
+# uncomment the following, but I can't build a static version with them, ?-(|
 #GETTEXT=c:/gettext-0.10.37-20010430
 #STATIC_GETTEXT=USE_STATIC_GETTEXT
 #DYNAMIC_GETTEXT=DYNAMIC_GETTEXT
@@ -102,6 +108,13 @@ endif
 # on NT, it's here:
 PERLLIB=$(PERL)/lib
 PERLLIBS=$(PERLLIB)/Core
+XSUBPPTRY=$(PERLLIB)/ExtUtils/xsubpp
+XSUBPP_EXISTS=$(shell perl -e "print 1 unless -e '$(XSUBPPTRY)'")
+ifeq "$(XSUBPP_EXISTS)" ""
+XSUBPP=perl $(XSUBPPTRY)
+else
+XSUBPP=xsubpp
+endif
 endif
 
 # uncomment 'LUA' if you want a Lua-enabled version
@@ -141,11 +154,17 @@ ifndef MZSCHEME_GENERATE_BASE
 MZSCHEME_GENERATE_BASE=no
 endif
 
+ifndef MZSCHEME_USE_RACKET
+MZSCHEME_MAIN_LIB=mzsch
+else
+MZSCHEME_MAIN_LIB=racket
+endif
+
 ifeq (no,$(DYNAMIC_MZSCHEME))
 ifeq (yes,$(MZSCHEME_PRECISE_GC))
-MZSCHEME_LIB=-lmzsch$(MZSCHEME_VER)
+MZSCHEME_LIB=-l$(MZSCHEME_MAIN_LIB)$(MZSCHEME_VER)
 else
-MZSCHEME_LIB = -lmzsch$(MZSCHEME_VER) -lmzgc$(MZSCHEME_VER)
+MZSCHEME_LIB = -l$(MZSCHEME_MAIN_LIB)$(MZSCHEME_VER) -lmzgc$(MZSCHEME_VER)
 endif
 # the modern MinGW can dynamically link to dlls directly.
 # point MZSCHEME_DLLS to where you put libmzschXXXXXXX.dll and libgcXXXXXXX.dll
@@ -304,11 +323,13 @@ endif
 endif
 CC := $(CROSS_COMPILE)gcc
 WINDRES := $(CROSS_COMPILE)windres
+WINDRES_CC = $(CC)
 
 #>>>>> end of choices
 ###########################################################################
 
 CFLAGS = -Iproto $(DEFINES) -pipe -w -march=$(ARCH) -Wall
+WINDRES_FLAGS = --preprocessor="$(WINDRES_CC) -E -xc" -DRC_INVOKED
 
 ifdef GETTEXT
 DEFINES += -DHAVE_GETTEXT -DHAVE_LOCALE_H
@@ -343,7 +364,7 @@ endif
 ifdef MZSCHEME
 CFLAGS += -I$(MZSCHEME)/include -DFEAT_MZSCHEME -DMZSCHEME_COLLECTS=\"$(MZSCHEME)/collects\"
 ifeq (yes, $(DYNAMIC_MZSCHEME))
-CFLAGS += -DDYNAMIC_MZSCHEME -DDYNAMIC_MZSCH_DLL=\"libmzsch$(MZSCHEME_VER).dll\" -DDYNAMIC_MZGC_DLL=\"libmzgc$(MZSCHEME_VER).dll\"
+CFLAGS += -DDYNAMIC_MZSCHEME -DDYNAMIC_MZSCH_DLL=\"lib$(MZSCHEME_MAIN_LIB)$(MZSCHEME_VER).dll\" -DDYNAMIC_MZGC_DLL=\"libmzgc$(MZSCHEME_VER).dll\"
 endif
 endif
 
@@ -571,8 +592,13 @@ endif
 endif
 
 ifeq (yes, $(OLE))
-LIB += -loleaut32 -lstdc++
+LIB += -loleaut32
 OBJ += $(OUTDIR)/if_ole.o
+ifeq (yes, $(STATIC_STDCPLUS))
+LIB += -Wl,-Bstatic -lstdc++ -Wl,-Bdynamic
+else
+LIB += -lstdc++
+endif
 endif
 
 ifeq (yes, $(MBYTE))
@@ -615,7 +641,7 @@ upx: exes
 	upx vim.exe
 
 xxd/xxd.exe: xxd/xxd.c
-	$(MAKE) -C xxd -f Make_cyg.mak CC=$(CC)
+	$(MAKE) -C xxd -f Make_ming.mak CC=$(CC)
 
 GvimExt/gvimext.dll: GvimExt/gvimext.cpp GvimExt/gvimext.rc GvimExt/gvimext.h
 	$(MAKE) -C GvimExt -f Make_ming.mak CROSS=$(CROSS) CROSS_COMPILE=$(CROSS_COMPILE)
@@ -633,7 +659,7 @@ ifdef MZSCHEME
 	-$(DEL) mzscheme_base.c
 endif
 	$(MAKE) -C GvimExt -f Make_ming.mak clean
-	$(MAKE) -C xxd -f Make_cyg.mak clean
+	$(MAKE) -C xxd -f Make_ming.mak clean
 
 ###########################################################################
 INCL = vim.h feature.h os_win32.h os_dos.h ascii.h keymap.h term.h macros.h \
@@ -650,10 +676,10 @@ $(OUTDIR)/%.o : %.c $(INCL)
 	$(CC) -c $(CFLAGS) $< -o $@
 
 $(OUTDIR)/vimres.res: vim.rc version.h gui_w32_rc.h
-	$(WINDRES) $(DEFINES) vim.rc $(OUTDIR)/vimres.res
+	$(WINDRES) $(WINDRES_FLAGS) $(DEFINES) vim.rc $(OUTDIR)/vimres.res
 
 $(OUTDIR)/vimrc.o: $(OUTDIR)/vimres.res
-	$(WINDRES) $(OUTDIR)/vimres.res $(OUTDIR)/vimrc.o
+	$(WINDRES) $(WINDRES_FLAGS) $(OUTDIR)/vimres.res $(OUTDIR)/vimrc.o
 
 $(OUTDIR):
 	$(MKDIR) $(OUTDIR)
@@ -677,7 +703,7 @@ ifeq (16, $(RUBY))
 endif
 
 if_perl.c: if_perl.xs typemap
-	perl $(PERLLIB)/ExtUtils/xsubpp -prototypes -typemap \
+	$(XSUBPP) -prototypes -typemap \
 	     $(PERLLIB)/ExtUtils/typemap if_perl.xs > $@
 
 $(OUTDIR)/netbeans.o:	netbeans.c $(INCL) $(NBDEBUG_INCL) $(NBDEBUG_SRC)

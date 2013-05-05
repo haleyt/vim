@@ -52,7 +52,7 @@
 
 /*
  * Here are the builtin termcap entries.  They are not stored as complete
- * Tcarr structures, as such a structure is too big.
+ * structures with all entries, as such a structure is too big.
  *
  * The entries are compact, therefore they normally are included even when
  * HAVE_TGETENT is defined. When HAVE_TGETENT is defined, the builtin entries
@@ -199,71 +199,6 @@ static struct builtin_term builtin_termcaps[] =
 #endif
 
 #ifndef NO_BUILTIN_TCAPS
-# if defined(RISCOS) || defined(ALL_BUILTIN_TCAPS)
-/*
- * Default for the Acorn.
- */
-    {(int)KS_NAME,	"riscos"},
-    {(int)KS_CL,	"\014"},		/* Cls and Home Cursor */
-    {(int)KS_CM,	"\001%d\001%d\002"},	/* Position cursor */
-
-    {(int)KS_CCO,	"16"},			/* Allow 16 colors */
-
-    {(int)KS_CAF,	"\001%d\021"},		/* Set foreground colour */
-    {(int)KS_CAB,	"\001%d\022"},		/* Set background colour */
-
-
-    {(int)KS_ME,	"\004"},		/* Normal mode */
-    {(int)KS_MR,	"\005"},		/* Reverse */
-
-    {(int)KS_VI,	"\016"},		/* Cursor invisible */
-    {(int)KS_VE,	"\017"},		/* Cursor visible */
-    {(int)KS_VS,	"\020"},		/* Cursor very visible */
-
-    {(int)KS_CS,	"\001%d\001%d\003"},	/* Set scroll region */
-    {(int)KS_SR,	"\023"},		/* Scroll text down */
-    {K_UP,		"\217"},
-    {K_DOWN,		"\216"},
-    {K_LEFT,		"\214"},
-    {K_RIGHT,		"\215"},
-    {K_S_UP,		"\237"},
-    {K_S_DOWN,		"\236"},
-    {K_S_LEFT,		"\234"},
-    {K_S_RIGHT,		"\235"},
-
-    {K_F1,		"\201"},
-    {K_F2,		"\202"},
-    {K_F3,		"\203"},
-    {K_F4,		"\204"},
-    {K_F5,		"\205"},
-    {K_F6,		"\206"},
-    {K_F7,		"\207"},
-    {K_F8,		"\210"},
-    {K_F9,		"\211"},
-    {K_F10,		"\312"},
-    {K_F11,		"\313"},
-    {K_F12,		"\314"},
-    {K_S_F1,		"\221"},
-    {K_S_F2,		"\222"},
-    {K_S_F3,		"\223"},
-    {K_S_F4,		"\224"},
-    {K_S_F5,		"\225"},
-    {K_S_F6,		"\226"},
-    {K_S_F7,		"\227"},
-    {K_S_F8,		"\230"},
-    {K_S_F9,		"\231"},
-    {K_S_F10,		"\332"},
-    {K_S_F11,		"\333"},
-    {K_S_F12,		"\334"},
-    {K_BS,		"\010"},
-    {K_INS,		"\315"},
-    {K_DEL,		"\177"},
-    {K_HOME,		"\036"},
-    {K_END,		"\213"},
-    {K_PAGEUP,		"\237"},
-    {K_PAGEDOWN,	"\236"},
-# endif	/* Acorn terminal */
-
 
 # if defined(AMIGA) || defined(ALL_BUILTIN_TCAPS)
 /*
@@ -1399,10 +1334,6 @@ static struct builtin_term builtin_termcaps[] =
 /*
  * DEFAULT_TERM is used, when no terminal is specified with -T option or $TERM.
  */
-#ifdef RISCOS
-# define DEFAULT_TERM	(char_u *)"riscos"
-#endif
-
 #ifdef AMIGA
 # define DEFAULT_TERM	(char_u *)"amiga"
 #endif
@@ -2065,6 +1996,7 @@ set_termname(term)
 #  define HMT_DEC	4
 #  define HMT_JSBTERM	8
 #  define HMT_PTERM	16
+#  define HMT_URXVT	32
 static int has_mouse_termcode = 0;
 # endif
 
@@ -2098,6 +2030,11 @@ set_mouse_termcode(n, s)
 #   ifdef FEAT_MOUSE_PTERM
     if (n == KS_PTERM_MOUSE)
 	has_mouse_termcode |= HMT_PTERM;
+    else
+#   endif
+#   ifdef FEAT_MOUSE_URXVT
+    if (n == KS_URXVT_MOUSE)
+	has_mouse_termcode |= HMT_URXVT;
     else
 #   endif
 	has_mouse_termcode |= HMT_NORMAL;
@@ -2135,6 +2072,11 @@ del_mouse_termcode(n)
 #   ifdef FEAT_MOUSE_PTERM
     if (n == KS_PTERM_MOUSE)
 	has_mouse_termcode &= ~HMT_PTERM;
+    else
+#   endif
+#   ifdef FEAT_MOUSE_URXVT
+    if (n == KS_URXVT_MOUSE)
+	has_mouse_termcode &= ~HMT_URXVT;
     else
 #   endif
 	has_mouse_termcode &= ~HMT_NORMAL;
@@ -3053,10 +2995,13 @@ shell_resized_check()
     int		old_Rows = Rows;
     int		old_Columns = Columns;
 
-    (void)ui_get_shellsize();
-    check_shellsize();
-    if (old_Rows != Rows || old_Columns != Columns)
-	shell_resized();
+    if (!exiting)
+    {
+	(void)ui_get_shellsize();
+	check_shellsize();
+	if (old_Rows != Rows || old_Columns != Columns)
+	    shell_resized();
+    }
 }
 
 /*
@@ -3083,11 +3028,19 @@ set_shellsize(width, height, mustset)
     if (width < 0 || height < 0)    /* just checking... */
 	return;
 
-    if (State == HITRETURN || State == SETWSIZE) /* postpone the resizing */
+    if (State == HITRETURN || State == SETWSIZE)
     {
+	/* postpone the resizing */
 	State = SETWSIZE;
 	return;
     }
+
+    /* curwin->w_buffer can be NULL when we are closing a window and the
+     * buffer has already been closed and removing a scrollbar causes a resize
+     * event. Don't resize then, it will happen after entering another buffer.
+     */
+    if (curwin->w_buffer == NULL)
+	return;
 
     ++busy;
 
@@ -3828,6 +3781,7 @@ set_mouse_topline(wp)
  * Check from typebuf.tb_buf[typebuf.tb_off] to typebuf.tb_buf[typebuf.tb_off
  * + max_offset].
  * Return 0 for no match, -1 for partial match, > 0 for full match.
+ * Return KEYLEN_REMOVED when a key code was deleted.
  * With a match, the match is removed, the replacement code is inserted in
  * typebuf.tb_buf[] and the number of characters in typebuf.tb_buf[] is
  * returned.
@@ -3845,6 +3799,7 @@ check_termcode(max_offset, buf, buflen)
     int		slen = 0;	/* init for GCC */
     int		modslen;
     int		len;
+    int		retval = 0;
     int		offset;
     char_u	key_name[2];
     int		modifiers;
@@ -4064,7 +4019,9 @@ check_termcode(max_offset, buf, buflen)
 	}
 
 #ifdef FEAT_TERMRESPONSE
-	if (key_name[0] == NUL)
+	if (key_name[0] == NUL
+	    /* URXVT mouse uses <ESC>[#;#;#M, but we are matching <ESC>[ */
+	    || key_name[0] == KS_URXVT_MOUSE)
 	{
 	    /* Check for xterm version string: "<Esc>[>{x};{vers};{y}c".  Also
 	     * eat other possible responses to t_RV, rxvt returns
@@ -4103,7 +4060,11 @@ check_termcode(max_offset, buf, buflen)
 		    if (tp[1 + (tp[0] != CSI)] == '>' && j == 2)
 		    {
 			/* if xterm version >= 95 use mouse dragging */
-			if (extra >= 95)
+			if (extra >= 95
+# ifdef TTYM_URXVT
+				&& ttym_flags != TTYM_URXVT
+# endif
+				)
 			    set_option_value((char_u *)"ttym", 0L,
 						       (char_u *)"xterm2", 0);
 			/* if xterm version >= 141 try to get termcap codes */
@@ -4197,6 +4158,9 @@ check_termcode(max_offset, buf, buflen)
 # ifdef FEAT_MOUSE_PTERM
 		|| key_name[0] == (int)KS_PTERM_MOUSE
 # endif
+# ifdef FEAT_MOUSE_URXVT
+		|| key_name[0] == (int)KS_URXVT_MOUSE
+# endif
 		)
 	{
 	    is_click = is_drag = FALSE;
@@ -4275,7 +4239,69 @@ check_termcode(max_offset, buf, buflen)
 		    else
 			break;
 		}
+	    }
 
+# ifdef FEAT_MOUSE_URXVT
+	    if (key_name[0] == (int)KS_URXVT_MOUSE)
+	    {
+		for (;;)
+		{
+		    /* URXVT 1015 mouse reporting mode:
+		     * Almost identical to xterm mouse mode, except the values
+		     * are decimal instead of bytes.
+		     *
+		     * \033[%d;%d;%dM
+		     *		  ^-- row
+		     *	       ^----- column
+		     *	    ^-------- code
+		     */
+		    p = tp + slen;
+
+		    mouse_code = getdigits(&p);
+		    if (*p++ != ';')
+			return -1;
+
+		    mouse_col = getdigits(&p) - 1;
+		    if (*p++ != ';')
+			return -1;
+
+		    mouse_row = getdigits(&p) - 1;
+		    if (*p++ != 'M')
+			return -1;
+
+		    slen += (int)(p - (tp + slen));
+
+		    /* skip this one if next one has same code (like xterm
+		     * case) */
+		    j = termcodes[idx].len;
+		    if (STRNCMP(tp, tp + slen, (size_t)j) == 0) {
+			/* check if the command is complete by looking for the
+			 * M */
+			int slen2;
+			int cmd_complete = 0;
+			for (slen2 = slen; slen2 < len; slen2++) {
+			    if (tp[slen2] == 'M') {
+				cmd_complete = 1;
+				break;
+			    }
+			}
+			p += j;
+			if (cmd_complete && getdigits(&p) == mouse_code) {
+			    slen += j; /* skip the \033[ */
+			    continue;
+			}
+		    }
+		    break;
+		}
+	    }
+# endif
+
+	if (key_name[0] == (int)KS_MOUSE
+#ifdef FEAT_MOUSE_URXVT
+	    || key_name[0] == (int)KS_URXVT_MOUSE
+#endif
+	    )
+	{
 #  if !defined(MSWIN) && !defined(MSDOS)
 		/*
 		 * Handle mouse events.
@@ -4940,6 +4966,13 @@ check_termcode(max_offset, buf, buflen)
 #endif
 		string[new_slen++] = key_name[1];
 	}
+	else if (new_slen == 0 && key_name[0] == KS_EXTRA
+						  && key_name[1] == KE_IGNORE)
+	{
+	    /* Do not put K_IGNORE into the buffer, do return KEYLEN_REMOVED
+	     * to indicate what happened. */
+	    retval = KEYLEN_REMOVED;
+	}
 	else
 	{
 	    string[new_slen++] = K_SPECIAL;
@@ -4976,7 +5009,7 @@ check_termcode(max_offset, buf, buflen)
 						   (size_t)(buflen - offset));
 	    mch_memmove(buf + offset, string, (size_t)new_slen);
 	}
-	return (len + extra + offset);
+	return retval == 0 ? (len + extra + offset) : retval;
     }
 
     return 0;			    /* no match found */
@@ -5219,12 +5252,12 @@ find_term_bykeys(src)
     char_u	*src;
 {
     int		i;
-    int		slen;
+    int		slen = (int)STRLEN(src);
 
     for (i = 0; i < tc_len; ++i)
     {
-	slen = termcodes[i].len;
-	if (slen > 1 && STRNCMP(termcodes[i].code, src, (size_t)slen) == 0)
+	if (slen == termcodes[i].len
+			&& STRNCMP(termcodes[i].code, src, (size_t)slen) == 0)
 	    return i;
     }
     return -1;

@@ -21,6 +21,12 @@
  *
  */
 
+/* Win16 doesn't use the "W" methods. */
+#define pDispatchMessage DispatchMessage
+#define pGetMessage GetMessage
+#define pIsDialogMessage IsDialogMessage
+#define pPeekMessage PeekMessage
+
 /*
  * Include the common stuff for MS-Windows GUI.
  */
@@ -1098,7 +1104,8 @@ gui_mch_dialog(
     char_u	*message,
     char_u	*buttons,
     int		 dfltbutton,
-    char_u	*textfield)
+    char_u	*textfield,
+    int		ex_cmd)
 {
     FARPROC	dp;
     LPWORD	p, pnumitems;

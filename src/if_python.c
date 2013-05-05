@@ -56,6 +56,10 @@
 
 static void init_structs(void);
 
+/* No-op conversion functions, use with care! */
+#define PyString_AsBytes(obj) (obj)
+#define PyString_FreeBytes(obj)
+
 #if !defined(FEAT_PYTHON) && defined(PROTO)
 /* Use this to be able to generate prototypes without python being used. */
 # define PyObject Py_ssize_t
@@ -102,7 +106,7 @@ struct PyMethodDef { Py_ssize_t a; };
 #  include <dlfcn.h>
 #  define FARPROC void*
 #  define HINSTANCE void*
-#  ifdef PY_NO_RTLD_GLOBAL
+#  if defined(PY_NO_RTLD_GLOBAL) && defined(PY3_NO_RTLD_GLOBAL)
 #   define load_dll(n) dlopen((n), RTLD_LAZY)
 #  else
 #   define load_dll(n) dlopen((n), RTLD_LAZY|RTLD_GLOBAL)
@@ -110,7 +114,7 @@ struct PyMethodDef { Py_ssize_t a; };
 #  define close_dll dlclose
 #  define symbol_from_dll dlsym
 # else
-#  define load_dll LoadLibrary
+#  define load_dll vimLoadLib
 #  define close_dll FreeLibrary
 #  define symbol_from_dll GetProcAddress
 # endif
@@ -129,6 +133,7 @@ struct PyMethodDef { Py_ssize_t a; };
  */
 # define PyArg_Parse dll_PyArg_Parse
 # define PyArg_ParseTuple dll_PyArg_ParseTuple
+# define PyMem_Free dll_PyMem_Free
 # define PyDict_SetItemString dll_PyDict_SetItemString
 # define PyErr_BadArgument dll_PyErr_BadArgument
 # define PyErr_Clear dll_PyErr_Clear
@@ -165,9 +170,11 @@ struct PyMethodDef { Py_ssize_t a; };
 # define PySys_SetObject dll_PySys_SetObject
 # define PySys_SetArgv dll_PySys_SetArgv
 # define PyType_Type (*dll_PyType_Type)
+# define PyType_Ready (*dll_PyType_Ready)
 # define Py_BuildValue dll_Py_BuildValue
 # define Py_FindMethod dll_Py_FindMethod
 # define Py_InitModule4 dll_Py_InitModule4
+# define Py_SetPythonHome dll_Py_SetPythonHome
 # define Py_Initialize dll_Py_Initialize
 # define Py_Finalize dll_Py_Finalize
 # define Py_IsInitialized dll_Py_IsInitialized
@@ -187,6 +194,7 @@ struct PyMethodDef { Py_ssize_t a; };
  */
 static int(*dll_PyArg_Parse)(PyObject *, char *, ...);
 static int(*dll_PyArg_ParseTuple)(PyObject *, char *, ...);
+static int(*dll_PyMem_Free)(void *);
 static int(*dll_PyDict_SetItemString)(PyObject *dp, char *key, PyObject *item);
 static int(*dll_PyErr_BadArgument)(void);
 static void(*dll_PyErr_Clear)(void);
@@ -223,9 +231,11 @@ static PyTypeObject* dll_PyString_Type;
 static int(*dll_PySys_SetObject)(char *, PyObject *);
 static int(*dll_PySys_SetArgv)(int, char **);
 static PyTypeObject* dll_PyType_Type;
+static int (*dll_PyType_Ready)(PyTypeObject *type);
 static PyObject*(*dll_Py_BuildValue)(char *, ...);
 static PyObject*(*dll_Py_FindMethod)(struct PyMethodDef[], PyObject *, char *);
 static PyObject*(*dll_Py_InitModule4)(char *, struct PyMethodDef *, char *, PyObject *, int);
+static void(*dll_Py_SetPythonHome)(char *home);
 static void(*dll_Py_Initialize)(void);
 static void(*dll_Py_Finalize)(void);
 static int(*dll_Py_IsInitialized)(void);
@@ -267,6 +277,7 @@ static struct
 {
     {"PyArg_Parse", (PYTHON_PROC*)&dll_PyArg_Parse},
     {"PyArg_ParseTuple", (PYTHON_PROC*)&dll_PyArg_ParseTuple},
+    {"PyMem_Free", (PYTHON_PROC*)&dll_PyMem_Free},
     {"PyDict_SetItemString", (PYTHON_PROC*)&dll_PyDict_SetItemString},
     {"PyErr_BadArgument", (PYTHON_PROC*)&dll_PyErr_BadArgument},
     {"PyErr_Clear", (PYTHON_PROC*)&dll_PyErr_Clear},
@@ -303,6 +314,7 @@ static struct
     {"PySys_SetObject", (PYTHON_PROC*)&dll_PySys_SetObject},
     {"PySys_SetArgv", (PYTHON_PROC*)&dll_PySys_SetArgv},
     {"PyType_Type", (PYTHON_PROC*)&dll_PyType_Type},
+    {"PyType_Ready", (PYTHON_PROC*)&dll_PyType_Ready},
     {"Py_BuildValue", (PYTHON_PROC*)&dll_Py_BuildValue},
     {"Py_FindMethod", (PYTHON_PROC*)&dll_Py_FindMethod},
 # if (PY_VERSION_HEX >= 0x02050000) && SIZEOF_SIZE_T != SIZEOF_INT
@@ -310,6 +322,7 @@ static struct
 # else
     {"Py_InitModule4", (PYTHON_PROC*)&dll_Py_InitModule4},
 # endif
+    {"Py_SetPythonHome", (PYTHON_PROC*)&dll_Py_SetPythonHome},
     {"Py_Initialize", (PYTHON_PROC*)&dll_Py_Initialize},
     {"Py_Finalize", (PYTHON_PROC*)&dll_Py_Finalize},
     {"Py_IsInitialized", (PYTHON_PROC*)&dll_Py_IsInitialized},
@@ -349,13 +362,14 @@ python_runtime_link_init(char *libname, int verbose)
 {
     int i;
 
-#if !defined(PY_NO_RTLD_GLOBAL) && defined(UNIX) && defined(FEAT_PYTHON3)
+#if !(defined(PY_NO_RTLD_GLOBAL) && defined(PY3_NO_RTLD_GLOBAL)) && defined(UNIX) && defined(FEAT_PYTHON3)
     /* Can't have Python and Python3 loaded at the same time.
      * It cause a crash, because RTLD_GLOBAL is needed for
      * standard C extension libraries of one or both python versions. */
     if (python3_loaded())
     {
-	EMSG(_("E836: This Vim cannot execute :python after using :py3"));
+	if (verbose)
+	    EMSG(_("E836: This Vim cannot execute :python after using :py3"));
 	return FAIL;
     }
 #endif
@@ -541,6 +555,10 @@ Python_Init(void)
 	    EMSG(_("E263: Sorry, this command is disabled, the Python library could not be loaded."));
 	    goto fail;
 	}
+#endif
+
+#ifdef PYTHON_HOME
+	Py_SetPythonHome(PYTHON_HOME);
 #endif
 
 	init_structs();
@@ -773,7 +791,7 @@ OutputSetattr(PyObject *self, char *name, PyObject *val)
 PythonIO_Init(void)
 {
     /* Fixups... */
-    OutputType.ob_type = &PyType_Type;
+    PyType_Ready(&OutputType);
 
     return PythonIO_Init_io();
 }
@@ -822,44 +840,6 @@ static PyInt RangeAssSlice(PyObject *, PyInt, PyInt, PyObject *);
 
 static PyObject *CurrentGetattr(PyObject *, char *);
 static int CurrentSetattr(PyObject *, char *, PyObject *);
-
-/* Common routines for buffers and line ranges
- * -------------------------------------------
- */
-
-    static PyInt
-RBAssSlice(BufferObject *self, PyInt lo, PyInt hi, PyObject *val, PyInt start, PyInt end, PyInt *new_end)
-{
-    PyInt size;
-    PyInt len_change;
-
-    /* Self must be a valid buffer */
-    if (CheckBuffer(self))
-	return -1;
-
-    /* Sort out the slice range */
-    size = end - start + 1;
-
-    if (lo < 0)
-	lo = 0;
-    else if (lo > size)
-	lo = size;
-    if (hi < 0)
-	hi = 0;
-    if (hi < lo)
-	hi = lo;
-    else if (hi > size)
-	hi = size;
-
-    if (SetBufferLineList(self->buf, lo + start, hi + start,
-						    val, &len_change) == FAIL)
-	return -1;
-
-    if (new_end)
-	*new_end = end + len_change;
-
-    return 0;
-}
 
 static PySequenceMethods BufferAsSeq = {
     (PyInquiry)		BufferLength,	    /* sq_length,    len(x)   */
@@ -1028,7 +1008,7 @@ BufferAssItem(PyObject *self, PyInt n, PyObject *val)
     static PyInt
 BufferAssSlice(PyObject *self, PyInt lo, PyInt hi, PyObject *val)
 {
-    return RBAssSlice((BufferObject *)(self), lo, hi, val, 1,
+    return RBAsSlice((BufferObject *)(self), lo, hi, val, 1,
 		      (PyInt)((BufferObject *)(self))->buf->b_ml.ml_line_count,
 		      NULL);
 }
@@ -1078,7 +1058,7 @@ RangeAssItem(PyObject *self, PyInt n, PyObject *val)
     static PyInt
 RangeAssSlice(PyObject *self, PyInt lo, PyInt hi, PyObject *val)
 {
-    return RBAssSlice(((RangeObject *)(self))->buf, lo, hi, val,
+    return RBAsSlice(((RangeObject *)(self))->buf, lo, hi, val,
 		      ((RangeObject *)(self))->start,
 		      ((RangeObject *)(self))->end,
 		      &((RangeObject *)(self))->end);
@@ -1395,12 +1375,12 @@ PythonMod_Init(void)
     static char *(argv[2]) = {"/must>not&exist/foo", NULL};
 
     /* Fixups... */
-    BufferType.ob_type = &PyType_Type;
-    RangeType.ob_type = &PyType_Type;
-    WindowType.ob_type = &PyType_Type;
-    BufListType.ob_type = &PyType_Type;
-    WinListType.ob_type = &PyType_Type;
-    CurrentType.ob_type = &PyType_Type;
+    PyType_Ready(&BufferType);
+    PyType_Ready(&RangeType);
+    PyType_Ready(&WindowType);
+    PyType_Ready(&BufListType);
+    PyType_Ready(&WinListType);
+    PyType_Ready(&CurrentType);
 
     /* Set sys.argv[] to avoid a crash in warn(). */
     PySys_SetArgv(1, argv);
@@ -1424,194 +1404,6 @@ PythonMod_Init(void)
 /*************************************************************************
  * 4. Utility functions for handling the interface between Vim and Python.
  */
-
-/* Replace a range of lines in the specified buffer. The line numbers are in
- * Vim format (1-based). The range is from lo up to, but not including, hi.
- * The replacement lines are given as a Python list of string objects. The
- * list is checked for validity and correct format. Errors are returned as a
- * value of FAIL.  The return value is OK on success.
- * If OK is returned and len_change is not NULL, *len_change
- * is set to the change in the buffer length.
- */
-    static int
-SetBufferLineList(buf_T *buf, PyInt lo, PyInt hi, PyObject *list, PyInt *len_change)
-{
-    /* First of all, we check the thpe of the supplied Python object.
-     * There are three cases:
-     *	  1. NULL, or None - this is a deletion.
-     *	  2. A list	   - this is a replacement.
-     *	  3. Anything else - this is an error.
-     */
-    if (list == Py_None || list == NULL)
-    {
-	PyInt	i;
-	PyInt	n = (int)(hi - lo);
-	buf_T	*savebuf = curbuf;
-
-	PyErr_Clear();
-	curbuf = buf;
-
-	if (u_savedel((linenr_T)lo, (long)n) == FAIL)
-	    PyErr_SetVim(_("cannot save undo information"));
-	else
-	{
-	    for (i = 0; i < n; ++i)
-	    {
-		if (ml_delete((linenr_T)lo, FALSE) == FAIL)
-		{
-		    PyErr_SetVim(_("cannot delete line"));
-		    break;
-		}
-	    }
-	    if (buf == curwin->w_buffer)
-		py_fix_cursor((linenr_T)lo, (linenr_T)hi, (linenr_T)-n);
-	    deleted_lines_mark((linenr_T)lo, (long)i);
-	}
-
-	curbuf = savebuf;
-
-	if (PyErr_Occurred() || VimErrorCheck())
-	    return FAIL;
-
-	if (len_change)
-	    *len_change = -n;
-
-	return OK;
-    }
-    else if (PyList_Check(list))
-    {
-	PyInt	i;
-	PyInt	new_len = PyList_Size(list);
-	PyInt	old_len = hi - lo;
-	PyInt	extra = 0;	/* lines added to text, can be negative */
-	char	**array;
-	buf_T	*savebuf;
-
-	if (new_len == 0)	/* avoid allocating zero bytes */
-	    array = NULL;
-	else
-	{
-	    array = (char **)alloc((unsigned)(new_len * sizeof(char *)));
-	    if (array == NULL)
-	    {
-		PyErr_NoMemory();
-		return FAIL;
-	    }
-	}
-
-	for (i = 0; i < new_len; ++i)
-	{
-	    PyObject *line = PyList_GetItem(list, i);
-
-	    array[i] = StringToLine(line);
-	    if (array[i] == NULL)
-	    {
-		while (i)
-		    vim_free(array[--i]);
-		vim_free(array);
-		return FAIL;
-	    }
-	}
-
-	savebuf = curbuf;
-
-	PyErr_Clear();
-	curbuf = buf;
-
-	if (u_save((linenr_T)(lo-1), (linenr_T)hi) == FAIL)
-	    PyErr_SetVim(_("cannot save undo information"));
-
-	/* If the size of the range is reducing (ie, new_len < old_len) we
-	 * need to delete some old_len. We do this at the start, by
-	 * repeatedly deleting line "lo".
-	 */
-	if (!PyErr_Occurred())
-	{
-	    for (i = 0; i < old_len - new_len; ++i)
-		if (ml_delete((linenr_T)lo, FALSE) == FAIL)
-		{
-		    PyErr_SetVim(_("cannot delete line"));
-		    break;
-		}
-	    extra -= i;
-	}
-
-	/* For as long as possible, replace the existing old_len with the
-	 * new old_len. This is a more efficient operation, as it requires
-	 * less memory allocation and freeing.
-	 */
-	if (!PyErr_Occurred())
-	{
-	    for (i = 0; i < old_len && i < new_len; ++i)
-		if (ml_replace((linenr_T)(lo+i), (char_u *)array[i], FALSE)
-								      == FAIL)
-		{
-		    PyErr_SetVim(_("cannot replace line"));
-		    break;
-		}
-	}
-	else
-	    i = 0;
-
-	/* Now we may need to insert the remaining new old_len. If we do, we
-	 * must free the strings as we finish with them (we can't pass the
-	 * responsibility to vim in this case).
-	 */
-	if (!PyErr_Occurred())
-	{
-	    while (i < new_len)
-	    {
-		if (ml_append((linenr_T)(lo + i - 1),
-					(char_u *)array[i], 0, FALSE) == FAIL)
-		{
-		    PyErr_SetVim(_("cannot insert line"));
-		    break;
-		}
-		vim_free(array[i]);
-		++i;
-		++extra;
-	    }
-	}
-
-	/* Free any left-over old_len, as a result of an error */
-	while (i < new_len)
-	{
-	    vim_free(array[i]);
-	    ++i;
-	}
-
-	/* Free the array of old_len. All of its contents have now
-	 * been dealt with (either freed, or the responsibility passed
-	 * to vim.
-	 */
-	vim_free(array);
-
-	/* Adjust marks. Invalidate any which lie in the
-	 * changed range, and move any in the remainder of the buffer.
-	 */
-	mark_adjust((linenr_T)lo, (linenr_T)(hi - 1),
-						  (long)MAXLNUM, (long)extra);
-	changed_lines((linenr_T)lo, 0, (linenr_T)hi, (long)extra);
-
-	if (buf == curwin->w_buffer)
-	    py_fix_cursor((linenr_T)lo, (linenr_T)hi, (linenr_T)extra);
-
-	curbuf = savebuf;
-
-	if (PyErr_Occurred() || VimErrorCheck())
-	    return FAIL;
-
-	if (len_change)
-	    *len_change = new_len - old_len;
-
-	return OK;
-    }
-    else
-    {
-	PyErr_BadArgument();
-	return FAIL;
-    }
-}
 
 /* Convert a Vim line into a Python string.
  * All internal newlines are replaced by null characters.

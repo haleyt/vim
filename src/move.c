@@ -362,7 +362,7 @@ update_topline()
 #endif
 	    )
     {
-	dollar_vcol = 0;
+	dollar_vcol = -1;
 	if (curwin->w_skipcol != 0)
 	{
 	    curwin->w_skipcol = 0;
@@ -926,8 +926,8 @@ curwin_col_off2()
  * Also updates curwin->w_leftcol.
  */
     void
-curs_columns(scroll)
-    int		scroll;		/* when TRUE, may scroll horizontally */
+curs_columns(may_scroll)
+    int		may_scroll;	/* when TRUE, may scroll horizontally */
 {
     int		diff;
     int		extra;		/* offset for first screen line */
@@ -966,7 +966,7 @@ curs_columns(scroll)
 
     /* remove '$' from change command when cursor moves onto it */
     if (startcol > dollar_vcol)
-	dollar_vcol = 0;
+	dollar_vcol = -1;
 
     extra = curwin_col_off();
     curwin->w_wcol = curwin->w_virtcol + extra;
@@ -1014,7 +1014,7 @@ curs_columns(scroll)
     /* No line wrapping: compute curwin->w_leftcol if scrolling is on and line
      * is not folded.
      * If scrolling is off, curwin->w_leftcol is assumed to be 0 */
-    else if (scroll
+    else if (may_scroll
 #ifdef FEAT_FOLDING
 	    && !curwin->w_cline_folded
 #endif
@@ -2846,6 +2846,7 @@ do_check_cursorbind()
     colnr_T	col =  curwin->w_cursor.col;
     win_T	*old_curwin = curwin;
     buf_T	*old_curbuf = curbuf;
+    int		restart_edit_save;
 # ifdef FEAT_VISUAL
     int		old_VIsual_select = VIsual_select;
     int		old_VIsual_active = VIsual_active;
@@ -2875,16 +2876,22 @@ do_check_cursorbind()
 		curwin->w_cursor.lnum = line;
 	    curwin->w_cursor.col = col;
 
-	    /* Make sure the cursor is in a valid position. */
+	    /* Make sure the cursor is in a valid position.  Temporarily set
+	     * "restart_edit" to allow the cursor to be beyond the EOL. */
+	    restart_edit_save = restart_edit;
+	    restart_edit = TRUE;
 	    check_cursor();
+	    restart_edit = restart_edit_save;
 # ifdef FEAT_MBYTE
 	    /* Correct cursor for multi-byte character. */
 	    if (has_mbyte)
 		mb_adjust_cursor();
 # endif
-
 	    redraw_later(VALID);
-	    update_topline();
+
+	    /* Only scroll when 'scrollbind' hasn't done this. */
+	    if (!curwin->w_p_scb)
+		update_topline();
 # ifdef FEAT_WINDOWS
 	    curwin->w_redr_status = TRUE;
 # endif

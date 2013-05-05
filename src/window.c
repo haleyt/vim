@@ -70,7 +70,8 @@ static win_T *restore_snapshot_rec __ARGS((frame_T *sn, frame_T *fr));
 #endif /* FEAT_WINDOWS */
 
 static win_T *win_alloc __ARGS((win_T *after, int hidden));
-static void win_new_height __ARGS((win_T *, int));
+static void set_fraction __ARGS((win_T *wp));
+static void win_new_height __ARGS((win_T *wp, int height));
 
 #define URL_SLASH	1		/* path_is_url() has found "://" */
 #define URL_BACKSLASH	2		/* path_is_url() has found ":\\" */
@@ -525,9 +526,7 @@ wingotofile:
 		    setpcmark();
 		    if (win_split(0, 0) == OK)
 		    {
-# ifdef FEAT_SCROLLBIND
-			curwin->w_p_scb = FALSE;
-# endif
+			RESET_BINDING(curwin);
 			(void)do_ecmd(0, ptr, NULL, NULL, ECMD_LASTL,
 							   ECMD_HIDE, NULL);
 			if (nchar == 'F' && lnum >= 0)
@@ -684,19 +683,19 @@ win_split(size, flags)
 }
 
 /*
- * When "newwin" is NULL: split the current window in two.
- * When "newwin" is not NULL: insert this window at the far
+ * When "new_wp" is NULL: split the current window in two.
+ * When "new_wp" is not NULL: insert this window at the far
  * top/left/right/bottom.
  * return FAIL for failure, OK otherwise
  */
     int
-win_split_ins(size, flags, newwin, dir)
+win_split_ins(size, flags, new_wp, dir)
     int		size;
     int		flags;
-    win_T	*newwin;
+    win_T	*new_wp;
     int		dir;
 {
-    win_T	*wp = newwin;
+    win_T	*wp = new_wp;
     win_T	*oldwin;
     int		new_size = size;
     int		i;
@@ -719,7 +718,7 @@ win_split_ins(size, flags, newwin, dir)
     /* add a status line when p_ls == 1 and splitting the first window */
     if (lastwin == firstwin && p_ls == 1 && oldwin->w_status_height == 0)
     {
-	if (oldwin->w_height <= p_wmh && newwin == NULL)
+	if (oldwin->w_height <= p_wmh && new_wp == NULL)
 	{
 	    EMSG(_(e_noroom));
 	    return FAIL;
@@ -752,7 +751,7 @@ win_split_ins(size, flags, newwin, dir)
 	}
 	else
 	    available = oldwin->w_width;
-	if (available < needed && newwin == NULL)
+	if (available < needed && new_wp == NULL)
 	{
 	    EMSG(_(e_noroom));
 	    return FAIL;
@@ -816,7 +815,7 @@ win_split_ins(size, flags, newwin, dir)
 	    available = oldwin->w_height;
 	    needed += p_wmh;
 	}
-	if (available < needed && newwin == NULL)
+	if (available < needed && new_wp == NULL)
 	{
 	    EMSG(_(e_noroom));
 	    return FAIL;
@@ -889,20 +888,20 @@ win_split_ins(size, flags, newwin, dir)
 			p_sb))))
     {
 	/* new window below/right of current one */
-	if (newwin == NULL)
+	if (new_wp == NULL)
 	    wp = win_alloc(oldwin, FALSE);
 	else
 	    win_append(oldwin, wp);
     }
     else
     {
-	if (newwin == NULL)
+	if (new_wp == NULL)
 	    wp = win_alloc(oldwin->w_prev, FALSE);
 	else
 	    win_append(oldwin->w_prev, wp);
     }
 
-    if (newwin == NULL)
+    if (new_wp == NULL)
     {
 	if (wp == NULL)
 	    return FAIL;
@@ -973,10 +972,10 @@ win_split_ins(size, flags, newwin, dir)
 		frp->fr_parent = curfrp;
     }
 
-    if (newwin == NULL)
+    if (new_wp == NULL)
 	frp = wp->w_frame;
     else
-	frp = newwin->w_frame;
+	frp = new_wp->w_frame;
     frp->fr_parent = curfrp->fr_parent;
 
     /* Insert the new frame at the right place in the frame list. */
@@ -985,10 +984,17 @@ win_split_ins(size, flags, newwin, dir)
     else
 	frame_append(curfrp, frp);
 
+    /* Set w_fraction now so that the cursor keeps the same relative
+     * vertical position. */
+    if (oldwin->w_height > 0)
+	set_fraction(oldwin);
+    wp->w_fraction = oldwin->w_fraction;
+
 #ifdef FEAT_VERTSPLIT
     if (flags & WSP_VERT)
     {
 	wp->w_p_scr = curwin->w_p_scr;
+
 	if (need_status)
 	{
 	    win_new_height(oldwin, oldwin->w_height - 1);
@@ -1220,15 +1226,15 @@ win_init(newp, oldp, flags)
     }
     newp->w_tagstackidx = oldp->w_tagstackidx;
     newp->w_tagstacklen = oldp->w_tagstacklen;
-# ifdef FEAT_FOLDING
+#ifdef FEAT_FOLDING
     copyFoldingState(oldp, newp);
-# endif
+#endif
 
     win_init_some(newp, oldp);
 
-# ifdef FEAT_SYN_HL
+#ifdef FEAT_SYN_HL
     check_colorcolumn(newp);
-# endif
+#endif
 }
 
 /*
@@ -2164,7 +2170,7 @@ win_close(win, free_buf)
 
     /* When closing the help window, try restoring a snapshot after closing
      * the window.  Otherwise clear the snapshot, it's now invalid. */
-    if (win->w_buffer->b_help)
+    if (win->w_buffer != NULL && win->w_buffer->b_help)
 	help_window = TRUE;
     else
 	clear_snapshot(curtab, SNAP_HELP_IDX);
@@ -2206,17 +2212,25 @@ win_close(win, free_buf)
 	out_flush();
 #endif
 
+#ifdef FEAT_SYN_HL
+    /* Free independent synblock before the buffer is freed. */
+    if (win->w_buffer != NULL)
+	reset_synblock(win);
+#endif
+
     /*
      * Close the link to the buffer.
      */
-    close_buffer(win, win->w_buffer, free_buf ? DOBUF_UNLOAD : 0);
+    if (win->w_buffer != NULL)
+	close_buffer(win, win->w_buffer, free_buf ? DOBUF_UNLOAD : 0);
 
     /* Autocommands may have closed the window already, or closed the only
      * other window or moved to another tab page. */
     if (!win_valid(win) || last_window() || curtab != prev_curtab)
 	return;
 
-    /* Free the memory used for the window. */
+    /* Free the memory used for the window and get the window that received
+     * the screen space. */
     wp = win_free_mem(win, &dir, NULL);
 
     /* Make sure curwin isn't invalid.  It can cause severe trouble when
@@ -3241,6 +3255,9 @@ win_init_empty(wp)
     else
 	wp->w_farsi = W_CONV;
 #endif
+#ifdef FEAT_SYN_HL
+    wp->w_s = &wp->w_buffer->b_s;
+#endif
 }
 
 /*
@@ -3277,9 +3294,7 @@ win_alloc_aucmd_win()
     if (aucmd_win != NULL)
     {
 	win_init_some(aucmd_win, curwin);
-# ifdef FEAT_SCROLLBIND
-	aucmd_win->w_p_scb = FALSE;
-# endif
+	RESET_BINDING(aucmd_win);
 	new_frame(aucmd_win);
     }
 }
@@ -3320,10 +3335,8 @@ win_alloc_firstwin(oldwin)
 	/* First window in new tab page, initialize it from "oldwin". */
 	win_init(curwin, oldwin, 0);
 
-# ifdef FEAT_SCROLLBIND
-	/* We don't want scroll-binding in the first window. */
-	curwin->w_p_scb = FALSE;
-# endif
+	/* We don't want cursor- and scroll-binding in the first window. */
+	RESET_BINDING(curwin);
     }
 #endif
 
@@ -4271,19 +4284,19 @@ win_alloc(after, hidden)
     win_T	*after UNUSED;
     int		hidden UNUSED;
 {
-    win_T	*newwin;
+    win_T	*new_wp;
 
     /*
      * allocate window structure and linesizes arrays
      */
-    newwin = (win_T *)alloc_clear((unsigned)sizeof(win_T));
-    if (newwin != NULL && win_alloc_lines(newwin) == FAIL)
+    new_wp = (win_T *)alloc_clear((unsigned)sizeof(win_T));
+    if (new_wp != NULL && win_alloc_lines(new_wp) == FAIL)
     {
-	vim_free(newwin);
-	newwin = NULL;
+	vim_free(new_wp);
+	new_wp = NULL;
     }
 
-    if (newwin != NULL)
+    if (new_wp != NULL)
     {
 #ifdef FEAT_AUTOCMD
 	/* Don't execute autocommands while the window is not properly
@@ -4296,53 +4309,53 @@ win_alloc(after, hidden)
 	 */
 #ifdef FEAT_WINDOWS
 	if (!hidden)
-	    win_append(after, newwin);
+	    win_append(after, new_wp);
 #endif
 #ifdef FEAT_VERTSPLIT
-	newwin->w_wincol = 0;
-	newwin->w_width = Columns;
+	new_wp->w_wincol = 0;
+	new_wp->w_width = Columns;
 #endif
 
 	/* position the display and the cursor at the top of the file. */
-	newwin->w_topline = 1;
+	new_wp->w_topline = 1;
 #ifdef FEAT_DIFF
-	newwin->w_topfill = 0;
+	new_wp->w_topfill = 0;
 #endif
-	newwin->w_botline = 2;
-	newwin->w_cursor.lnum = 1;
+	new_wp->w_botline = 2;
+	new_wp->w_cursor.lnum = 1;
 #ifdef FEAT_SCROLLBIND
-	newwin->w_scbind_pos = 1;
+	new_wp->w_scbind_pos = 1;
 #endif
 
 	/* We won't calculate w_fraction until resizing the window */
-	newwin->w_fraction = 0;
-	newwin->w_prev_fraction_row = -1;
+	new_wp->w_fraction = 0;
+	new_wp->w_prev_fraction_row = -1;
 
 #ifdef FEAT_GUI
 	if (gui.in_use)
 	{
-	    gui_create_scrollbar(&newwin->w_scrollbars[SBAR_LEFT],
-		    SBAR_LEFT, newwin);
-	    gui_create_scrollbar(&newwin->w_scrollbars[SBAR_RIGHT],
-		    SBAR_RIGHT, newwin);
+	    gui_create_scrollbar(&new_wp->w_scrollbars[SBAR_LEFT],
+		    SBAR_LEFT, new_wp);
+	    gui_create_scrollbar(&new_wp->w_scrollbars[SBAR_RIGHT],
+		    SBAR_RIGHT, new_wp);
 	}
 #endif
 #ifdef FEAT_EVAL
 	/* init w: variables */
-	init_var_dict(&newwin->w_vars, &newwin->w_winvar);
+	init_var_dict(&new_wp->w_vars, &new_wp->w_winvar);
 #endif
 #ifdef FEAT_FOLDING
-	foldInitWin(newwin);
+	foldInitWin(new_wp);
 #endif
 #ifdef FEAT_AUTOCMD
 	unblock_autocmds();
 #endif
 #ifdef FEAT_SEARCH_EXTRA
-	newwin->w_match_head = NULL;
-	newwin->w_next_match_id = 4;
+	new_wp->w_match_head = NULL;
+	new_wp->w_next_match_id = 4;
 #endif
     }
-    return newwin;
+    return new_wp;
 }
 
 #if defined(FEAT_WINDOWS) || defined(PROTO)
@@ -4435,7 +4448,6 @@ win_free(wp, tp)
 #endif /* FEAT_GUI */
 
 #ifdef FEAT_SYN_HL
-    reset_synblock(wp);  /* free independent synblock */
     vim_free(wp->w_p_cc_cols);
 #endif
 
@@ -5459,6 +5471,19 @@ win_drag_vsep_line(dragwin, offset)
 
 #endif /* FEAT_WINDOWS */
 
+#define FRACTION_MULT	16384L
+
+/*
+ * Set wp->w_fraction for the current w_wrow and w_height.
+ */
+    static void
+set_fraction(wp)
+    win_T	*wp;
+{
+    wp->w_fraction = ((long)wp->w_wrow * FRACTION_MULT
+				    + FRACTION_MULT / 2) / (long)wp->w_height;
+}
+
 /*
  * Set the height of a window.
  * This takes care of the things inside the window, not what happens to the
@@ -5471,7 +5496,6 @@ win_new_height(wp, height)
 {
     linenr_T	lnum;
     int		sline, line_size;
-#define FRACTION_MULT	16384L
 
     /* Don't want a negative height.  Happens when splitting a tiny window.
      * Will equalize heights soon to fix it. */
@@ -5481,8 +5505,7 @@ win_new_height(wp, height)
 	return;	    /* nothing to do */
 
     if (wp->w_wrow != wp->w_prev_fraction_row && wp->w_height > 0)
-	wp->w_fraction = ((long)wp->w_wrow * FRACTION_MULT
-				    + FRACTION_MULT / 2) / (long)wp->w_height;
+	set_fraction(wp);
 
     wp->w_height = height;
     wp->w_skipcol = 0;

@@ -9,12 +9,11 @@
  * See README.txt for an overview of the Vim source code.
  */
 
-#include <stdio.h>
-#include <string.h>
+#include "vim.h"
+
 #include <lua.h>
 #include <lualib.h>
 #include <lauxlib.h>
-#include "vim.h"
 
 /* Only do the following when the feature is enabled.  Needed for "make
  * depend". */
@@ -49,7 +48,7 @@ static const char LUAVIM_FREE[] = "luaV_free";
 # define symbol_from_dll dlsym
 # define close_dll dlclose
 #else
-# define load_dll LoadLibrary
+# define load_dll vimLoadLib
 # define symbol_from_dll GetProcAddress
 # define close_dll FreeLibrary
 #endif
@@ -101,6 +100,7 @@ static const char LUAVIM_FREE[] = "luaV_free";
 #define lua_setfield dll_lua_setfield
 #define lua_rawset dll_lua_rawset
 #define lua_rawseti dll_lua_rawseti
+#define lua_remove dll_lua_remove
 #define lua_setmetatable dll_lua_setmetatable
 #define lua_call dll_lua_call
 #define lua_pcall dll_lua_pcall
@@ -162,6 +162,7 @@ int (*dll_lua_getmetatable) (lua_State *L, int objindex);
 void (*dll_lua_setfield) (lua_State *L, int idx, const char *k);
 void (*dll_lua_rawset) (lua_State *L, int idx);
 void (*dll_lua_rawseti) (lua_State *L, int idx, int n);
+void (*dll_lua_remove) (lua_State *L, int idx);
 int (*dll_lua_setmetatable) (lua_State *L, int objindex);
 void (*dll_lua_call) (lua_State *L, int nargs, int nresults);
 int (*dll_lua_pcall) (lua_State *L, int nargs, int nresults, int errfunc);
@@ -230,6 +231,7 @@ static const luaV_Reg luaV_dll[] = {
     {"lua_setfield", (luaV_function) &dll_lua_setfield},
     {"lua_rawset", (luaV_function) &dll_lua_rawset},
     {"lua_rawseti", (luaV_function) &dll_lua_rawseti},
+    {"lua_remove", (luaV_function) &dll_lua_remove},
     {"lua_setmetatable", (luaV_function) &dll_lua_setmetatable},
     {"lua_call", (luaV_function) &dll_lua_call},
     {"lua_pcall", (luaV_function) &dll_lua_pcall},
@@ -925,6 +927,31 @@ luaV_print(lua_State *L)
 }
 
     static int
+luaV_debug(lua_State *L)
+{
+    lua_settop(L, 0);
+    lua_getglobal(L, "vim");
+    lua_getfield(L, -1, "eval");
+    lua_remove(L, -2); /* vim.eval at position 1 */
+    for (;;)
+    {
+	const char *input;
+	size_t l;
+	lua_pushvalue(L, 1); /* vim.eval */
+	lua_pushliteral(L, "input('lua_debug> ')");
+	lua_call(L, 1, 1); /* return string */
+	input = lua_tolstring(L, -1, &l);
+	if (l == 0 || strcmp(input, "cont") == 0)
+	    return 0;
+	msg_putchar('\n'); /* avoid outputting on input line */
+	if (luaL_loadbuffer(L, input, l, "=(debug command)")
+		|| lua_pcall(L, 0, 0, 0))
+	    luaV_emsg(L);
+	lua_settop(L, 1); /* remove eventual returns, but keep vim.eval */
+    }
+}
+
+    static int
 luaV_command(lua_State *L)
 {
     do_cmdline_cmd((char_u *) luaL_checkstring(L, 1));
@@ -1017,13 +1044,12 @@ luaV_window(lua_State *L)
     static int
 luaV_open(lua_State *L)
 {
-    luaV_Buffer *b;
     char_u *s = NULL;
 #ifdef HAVE_SANDBOX
     luaV_checksandbox(L);
 #endif
     if (lua_isstring(L, 1)) s = (char_u *) lua_tostring(L, 1);
-    b = luaV_pushbuffer(L, buflist_new(s, NULL, 1L, BLN_LISTED));
+    luaV_pushbuffer(L, buflist_new(s, NULL, 1L, BLN_LISTED));
     return 1;
 }
 
@@ -1083,6 +1109,11 @@ luaopen_vim(lua_State *L)
     /* print */
     lua_pushcfunction(L, luaV_print);
     lua_setglobal(L, "print");
+    /* debug.debug */
+    lua_getglobal(L, "debug");
+    lua_pushcfunction(L, luaV_debug);
+    lua_setfield(L, -2, "debug");
+    lua_pop(L, 1);
     /* free */
     lua_pushlightuserdata(L, (void *) LUAVIM_FREE);
     lua_pushcfunction(L, luaV_free);

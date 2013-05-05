@@ -1,0 +1,156 @@
+*** src/auto/configure	2011-12-14 19:22:29.000000000 +0100
+--- configure	2011-12-14 20:49:51.000000000 +0100
+***************
+*** 741,746 ****
+  ac_subst_files=''
+  ac_user_opts='
+  enable_option_checking
+  enable_darwin
+  with_mac_arch
+  with_developer_dir
+--- 741,747 ----
+  ac_subst_files=''
+  ac_user_opts='
+  enable_option_checking
++ enable_fail_if_missing
+  enable_darwin
+  with_mac_arch
+  with_developer_dir
+***************
+*** 1418,1423 ****
+    --disable-option-checking  ignore unrecognized --enable/--with options
+    --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
+    --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
+    --disable-darwin        Disable Darwin (Mac OS X) support.
+    --disable-selinux	  Don't check for SELinux support.
+    --disable-xsmp          Disable XSMP session management
+--- 1419,1426 ----
+    --disable-option-checking  ignore unrecognized --enable/--with options
+    --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
+    --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
++   --enable-fail-if-missing    Fail if dependencies on additional features
++      specified on the command line are missing.
+    --disable-darwin        Disable Darwin (Mac OS X) support.
+    --disable-selinux	  Don't check for SELinux support.
+    --disable-xsmp          Disable XSMP session management
+***************
+*** 3949,3954 ****
+  fi
+  
+  
+  if test -z "$CFLAGS"; then
+    CFLAGS="-O"
+    test "$GCC" = yes && CFLAGS="-O2 -fno-strength-reduce -Wall"
+--- 3952,3970 ----
+  fi
+  
+  
++ 
++ { $as_echo "$as_me:${as_lineno-$LINENO}: checking --enable-fail-if-missing argument" >&5
++ $as_echo_n "checking --enable-fail-if-missing argument... " >&6; }
++ # Check whether --enable-fail_if_missing was given.
++ if test "${enable_fail_if_missing+set}" = set; then :
++   enableval=$enable_fail_if_missing; fail_if_missing="yes"
++ else
++   fail_if_missing="no"
++ fi
++ 
++ { $as_echo "$as_me:${as_lineno-$LINENO}: result: $fail_if_missing" >&5
++ $as_echo "$fail_if_missing" >&6; }
++ 
+  if test -z "$CFLAGS"; then
+    CFLAGS="-O"
+    test "$GCC" = yes && CFLAGS="-O2 -fno-strength-reduce -Wall"
+***************
+*** 4727,4732 ****
+        LUA_CFLAGS="-DDYNAMIC_LUA_DLL=\\\"liblua${vi_cv_version_lua}.so$LUA_SONAME\\\" $LUA_CFLAGS"
+      fi
+    fi
+  
+  
+  
+--- 4743,4751 ----
+        LUA_CFLAGS="-DDYNAMIC_LUA_DLL=\\\"liblua${vi_cv_version_lua}.so$LUA_SONAME\\\" $LUA_CFLAGS"
+      fi
+    fi
++   if test "$fail_if_missing" = "yes" -a -z "$LUA_SRC"; then
++     as_fn_error "could not configure lua" "$LINENO" 5
++   fi
+  
+  
+  
+***************
+*** 5140,5145 ****
+        PERL_CFLAGS="-DDYNAMIC_PERL_DLL=\\\"$libperl\\\" $PERL_CFLAGS"
+      fi
+    fi
+  fi
+  
+  
+--- 5159,5168 ----
+        PERL_CFLAGS="-DDYNAMIC_PERL_DLL=\\\"$libperl\\\" $PERL_CFLAGS"
+      fi
+    fi
++ 
++   if test "$fail_if_missing" = "yes" -a "$perl_ok" != "yes"; then
++     as_fn_error "could not configure perl" "$LINENO" 5
++   fi
+  fi
+  
+  
+***************
+*** 5429,5434 ****
+  $as_echo "too old" >&6; }
+      fi
+    fi
+  fi
+  
+  
+--- 5452,5461 ----
+  $as_echo "too old" >&6; }
+      fi
+    fi
++ 
++   if test "$fail_if_missing" = "yes" -a "$python_ok" != "yes"; then
++     as_fn_error "could not configure python" "$LINENO" 5
++   fi
+  fi
+  
+  
+***************
+*** 6216,6221 ****
+  $as_echo "too old; need Tcl version 8.0 or later" >&6; }
+      fi
+    fi
+  fi
+  
+  
+--- 6243,6251 ----
+  $as_echo "too old; need Tcl version 8.0 or later" >&6; }
+      fi
+    fi
++   if test "$fail_if_missing" = "yes" -a -z "$TCL_SRC"; then
++     as_fn_error "could not configure Tcl" "$LINENO" 5
++   fi
+  fi
+  
+  
+***************
+*** 6353,6358 ****
+  $as_echo "too old; need Ruby version 1.6.0 or later" >&6; }
+      fi
+    fi
+  fi
+  
+  
+--- 6383,6392 ----
+  $as_echo "too old; need Ruby version 1.6.0 or later" >&6; }
+      fi
+    fi
++ 
++   if test "$fail_if_missing" = "yes" -a -z "$RUBY_OBJ"; then
++     as_fn_error "could not configure Ruby" "$LINENO" 5
++   fi
+  fi
+  
+  

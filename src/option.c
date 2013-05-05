@@ -140,9 +140,6 @@
 #define PV_MOD		OPT_BUF(BV_MOD)
 #define PV_MPS		OPT_BUF(BV_MPS)
 #define PV_NF		OPT_BUF(BV_NF)
-#ifdef FEAT_OSFILETYPE
-# define PV_OFT		OPT_BUF(BV_OFT)
-#endif
 #ifdef FEAT_COMPL_FUNC
 # define PV_OFU		OPT_BUF(BV_OFU)
 #endif
@@ -337,9 +334,6 @@ static int	p_ma;
 static int	p_mod;
 static char_u	*p_mps;
 static char_u	*p_nf;
-#ifdef FEAT_OSFILETYPE
-static char_u	*p_oft;
-#endif
 static int	p_pi;
 #ifdef FEAT_TEXTOBJ
 static char_u	*p_qe;
@@ -907,6 +901,13 @@ static struct vimoption
 			    {(char_u *)0L, (char_u *)0L}
 #endif
 			    SCRIPTID_INIT},
+    {"cscoperelative", "csre", P_BOOL|P_VI_DEF|P_VIM,
+#ifdef FEAT_CSCOPE
+			    (char_u *)&p_csre, PV_NONE,
+#else
+			    (char_u *)NULL, PV_NONE,
+#endif
+			    {(char_u *)0L, (char_u *)0L} SCRIPTID_INIT},
     {"cscopetag",   "cst",  P_BOOL|P_VI_DEF|P_VIM,
 #ifdef FEAT_CSCOPE
 			    (char_u *)&p_cst, PV_NONE,
@@ -1901,14 +1902,8 @@ static struct vimoption
 			    (char_u *)NULL, PV_NONE,
 			    {(char_u *)FALSE, (char_u *)0L} SCRIPTID_INIT},
     {"osfiletype",  "oft",  P_STRING|P_ALLOCED|P_VI_DEF,
-#ifdef FEAT_OSFILETYPE
-			    (char_u *)&p_oft, PV_OFT,
-			    {(char_u *)DFLT_OFT, (char_u *)0L}
-#else
 			    (char_u *)NULL, PV_NONE,
-			    {(char_u *)0L, (char_u *)0L}
-#endif
-			    SCRIPTID_INIT},
+			    {(char_u *)0L, (char_u *)0L} SCRIPTID_INIT},
     {"paragraphs",  "para", P_STRING|P_VI_DEF,
 			    (char_u *)&p_para, PV_NONE,
 			    {(char_u *)"IPLPPPQPP TPHPLIPpLpItpplpipbp",
@@ -2740,7 +2735,7 @@ static struct vimoption
 			    (char_u *)&p_wc, PV_NONE,
 			    {(char_u *)(long)Ctrl_E, (char_u *)(long)TAB}
 			    SCRIPTID_INIT},
-    {"wildcharm",   "wcm",   P_NUM|P_VI_DEF,
+    {"wildcharm",   "wcm",  P_NUM|P_VI_DEF,
 			    (char_u *)&p_wcm, PV_NONE,
 			    {(char_u *)0L, (char_u *)0L} SCRIPTID_INIT},
     {"wildignore",  "wig",  P_STRING|P_VI_DEF|P_COMMA|P_NODUP,
@@ -2750,6 +2745,9 @@ static struct vimoption
 			    (char_u *)NULL, PV_NONE,
 #endif
 			    {(char_u *)"", (char_u *)0L} SCRIPTID_INIT},
+    {"wildignorecase", "wic", P_BOOL|P_VI_DEF,
+			    (char_u *)&p_wic, PV_NONE,
+			    {(char_u *)FALSE, (char_u *)0L} SCRIPTID_INIT},
     {"wildmenu",    "wmnu", P_BOOL|P_VI_DEF,
 #ifdef FEAT_WILDMENU
 			    (char_u *)&p_wmnu, PV_NONE,
@@ -3843,6 +3841,8 @@ set_init_3()
 # ifndef OS2	/* Always use bourne shell style redirection if we reach this */
 	    if (       fnamecmp(p, "sh") == 0
 		    || fnamecmp(p, "ksh") == 0
+		    || fnamecmp(p, "mksh") == 0
+		    || fnamecmp(p, "pdksh") == 0
 		    || fnamecmp(p, "zsh") == 0
 		    || fnamecmp(p, "zsh-beta") == 0
 		    || fnamecmp(p, "bash") == 0
@@ -3850,6 +3850,8 @@ set_init_3()
 		    || fnamecmp(p, "cmd") == 0
 		    || fnamecmp(p, "sh.exe") == 0
 		    || fnamecmp(p, "ksh.exe") == 0
+		    || fnamecmp(p, "mksh.exe") == 0
+		    || fnamecmp(p, "pdksh.exe") == 0
 		    || fnamecmp(p, "zsh.exe") == 0
 		    || fnamecmp(p, "zsh-beta.exe") == 0
 		    || fnamecmp(p, "bash.exe") == 0
@@ -4349,7 +4351,7 @@ do_set(arg, opt_flags)
 		    p = find_termcode(key_name);
 		    if (p == NULL)
 		    {
-			errmsg = (char_u *)N_("E518: Unknown option");
+			errmsg = (char_u *)N_("E846: Key code not set");
 			goto skip;
 		    }
 		    else
@@ -4565,6 +4567,31 @@ do_set(arg, opt_flags)
 				arg = errbuf;
 			    }
 			    /*
+			     * Convert 'backspace' number to string, for
+			     * adding, prepending and removing string.
+			     */
+			    else if (varp == (char_u *)&p_bs
+					 && VIM_ISDIGIT(**(char_u **)varp))
+			    {
+				i = getdigits((char_u **)varp);
+				switch (i)
+				{
+				    case 0:
+					*(char_u **)varp = empty_option;
+					break;
+				    case 1:
+					*(char_u **)varp = vim_strsave(
+						      (char_u *)"indent,eol");
+					break;
+				    case 2:
+					*(char_u **)varp = vim_strsave(
+						(char_u *)"indent,eol,start");
+					break;
+				}
+				vim_free(oldval);
+				oldval = *(char_u **)varp;
+			    }
+			    /*
 			     * Convert 'whichwrap' number to string, for
 			     * backwards compatibility with Vim 3.0.
 			     * Misuse errbuf[] for the resulting string.
@@ -4697,8 +4724,8 @@ do_set(arg, opt_flags)
 						|| s[i] == ','
 						|| s[i] == NUL))
 					break;
-				    /* Count backspaces.  Only a comma with an
-				     * even number of backspaces before it is
+				    /* Count backslashes.  Only a comma with an
+				     * even number of backslashes before it is
 				     * recognized as a separator */
 				    if (s > origval && s[-1] == '\\')
 					++bs;
@@ -5274,9 +5301,6 @@ check_buf_options(buf)
 #endif
 #ifdef FEAT_AUTOCMD
     check_string_option(&buf->b_p_ft);
-#endif
-#ifdef FEAT_OSFILETYPE
-    check_string_option(&buf->b_p_oft);
 #endif
 #if defined(FEAT_SMARTINDENT) || defined(FEAT_CINDENT)
     check_string_option(&buf->b_p_cinw);
@@ -7037,6 +7061,9 @@ check_colorcolumn(wp)
     int		i;
     int		j = 0;
 
+    if (wp->w_buffer == NULL)
+	return NULL;  /* buffer was closed */
+
     for (s = wp->w_p_cc; *s != NUL && count < 255;)
     {
 	if (*s == '-' || *s == '+')
@@ -7304,7 +7331,7 @@ check_stl_option(s)
     static char_u *
 check_clipboard_option()
 {
-    int		new_unnamed = FALSE;
+    int		new_unnamed = 0;
     int		new_autoselect = FALSE;
     int		new_autoselectml = FALSE;
     int		new_html = FALSE;
@@ -7316,8 +7343,14 @@ check_clipboard_option()
     {
 	if (STRNCMP(p, "unnamed", 7) == 0 && (p[7] == ',' || p[7] == NUL))
 	{
-	    new_unnamed = TRUE;
+	    new_unnamed |= CLIP_UNNAMED;
 	    p += 7;
+	}
+        else if (STRNCMP(p, "unnamedplus", 11) == 0
+					    && (p[11] == ',' || p[11] == NUL))
+	{
+	    new_unnamed |= CLIP_UNNAMED_PLUS;
+	    p += 11;
 	}
 	else if (STRNCMP(p, "autoselect", 10) == 0
 					&& (p[10] == ',' || p[10] == NUL))
@@ -7482,6 +7515,31 @@ set_bool_option(opt_idx, varp, value, opt_flags)
     {
 	compatible_set();
     }
+
+#ifdef FEAT_PERSISTENT_UNDO
+    /* 'undofile' */
+    else if ((int *)varp == &curbuf->b_p_udf || (int *)varp == &p_udf)
+    {
+	char_u	hash[UNDO_HASH_SIZE];
+	buf_T	*save_curbuf = curbuf;
+
+	for (curbuf = firstbuf; curbuf != NULL; curbuf = curbuf->b_next)
+	{
+	    /* When 'undofile' is set globally: for every buffer, otherwise
+	     * only for the current buffer: Try to read in the undofile, if
+	     * one exists and the buffer wasn't changed and the buffer was
+	     * loaded. */
+	    if ((curbuf == save_curbuf
+				|| (opt_flags & OPT_GLOBAL) || opt_flags == 0)
+		    && !curbufIsChanged() && curbuf->b_ml.ml_mfp != NULL)
+	    {
+		u_compute_hash(hash);
+		u_read_undo(NULL, hash, curbuf->b_fname);
+	    }
+	}
+	curbuf = save_curbuf;
+    }
+#endif
 
     /* 'list', 'number' */
     else if ((int *)varp == &curwin->w_p_list
@@ -7763,9 +7821,9 @@ set_bool_option(opt_idx, varp, value, opt_flags)
 #ifdef FEAT_BEVAL
     else if ((int *)varp == &p_beval)
     {
-	if (p_beval == TRUE)
+	if (p_beval && !old_value)
 	    gui_mch_enable_beval_area(balloonEval);
-	else
+	else if (!p_beval && old_value)
 	    gui_mch_disable_beval_area(balloonEval);
     }
 #endif
@@ -7798,6 +7856,10 @@ set_bool_option(opt_idx, varp, value, opt_flags)
 	/* Only de-activate it here, it will be enabled when changing mode. */
 	if (p_imdisable)
 	    im_set_active(FALSE);
+	else if (State & INSERT)
+	    /* When the option is set from an autocommand, it may need to take
+	     * effect right away. */
+	    im_set_active(curbuf->b_p_iminsert == B_IMODE_IM);
     }
 #endif
 
@@ -8523,8 +8585,8 @@ check_redraw(flags)
     long_u	flags;
 {
     /* Careful: P_RCLR and P_RALL are a combination of other P_ flags */
-    int		clear = (flags & P_RCLR) == P_RCLR;
-    int		all = ((flags & P_RALL) == P_RALL || clear);
+    int		doclear = (flags & P_RCLR) == P_RCLR;
+    int		all = ((flags & P_RALL) == P_RALL || doclear);
 
 #ifdef FEAT_WINDOWS
     if ((flags & P_RSTAT) || all)	/* mark all status lines dirty */
@@ -8535,7 +8597,7 @@ check_redraw(flags)
 	changed_window_setting();
     if (flags & P_RBUF)
 	redraw_curbuf_later(NOT_VALID);
-    if (clear)
+    if (doclear)
 	redraw_all_later(CLEAR);
     else if (all)
 	redraw_all_later(NOT_VALID);
@@ -9172,7 +9234,7 @@ put_setstring(fd, cmd, name, valuep, expand)
     int		expand;
 {
     char_u	*s;
-    char_u	buf[MAXPATHL];
+    char_u	*buf;
 
     if (fprintf(fd, "%s %s=", cmd, name) < 0)
 	return FAIL;
@@ -9190,9 +9252,16 @@ put_setstring(fd, cmd, name, valuep, expand)
 	}
 	else if (expand)
 	{
+	    buf = alloc(MAXPATHL);
+	    if (buf == NULL)
+		return FAIL;
 	    home_replace(NULL, *valuep, buf, MAXPATHL, FALSE);
 	    if (put_escstr(fd, buf, 2) == FAIL)
+	    {
+		vim_free(buf);
 		return FAIL;
+	    }
+	    vim_free(buf);
 	}
 	else if (put_escstr(fd, *valuep, 2) == FAIL)
 	    return FAIL;
@@ -9645,9 +9714,6 @@ get_varp(p)
 	case PV_MA:	return (char_u *)&(curbuf->b_p_ma);
 	case PV_MOD:	return (char_u *)&(curbuf->b_changed);
 	case PV_NF:	return (char_u *)&(curbuf->b_p_nf);
-#ifdef FEAT_OSFILETYPE
-	case PV_OFT:	return (char_u *)&(curbuf->b_p_oft);
-#endif
 	case PV_PI:	return (char_u *)&(curbuf->b_p_pi);
 #ifdef FEAT_TEXTOBJ
 	case PV_QE:	return (char_u *)&(curbuf->b_p_qe);
@@ -9755,6 +9821,9 @@ copy_winopt(from, to)
 #endif
 #ifdef FEAT_SCROLLBIND
     to->wo_scb = from->wo_scb;
+#endif
+#ifdef FEAT_CURSORBIND
+    to->wo_crb = from->wo_crb;
 #endif
 #ifdef FEAT_SPELL
     to->wo_spell = from->wo_spell;
@@ -9995,9 +10064,6 @@ buf_copy_options(buf, flags)
 	    /* Don't copy 'filetype', it must be detected */
 	    buf->b_p_ft = empty_option;
 #endif
-#ifdef FEAT_OSFILETYPE
-	    buf->b_p_oft = vim_strsave(p_oft);
-#endif
 	    buf->b_p_pi = p_pi;
 #if defined(FEAT_SMARTINDENT) || defined(FEAT_CINDENT)
 	    buf->b_p_cinw = vim_strsave(p_cinw);
@@ -10011,7 +10077,7 @@ buf_copy_options(buf, flags)
 	    buf->b_p_smc = p_smc;
 #endif
 #ifdef FEAT_SPELL
-	    buf->b_s.b_p_spc = vim_strsave(p_spf);
+	    buf->b_s.b_p_spc = vim_strsave(p_spc);
 	    (void)compile_cap_prog(&buf->b_s);
 	    buf->b_s.b_p_spf = vim_strsave(p_spf);
 	    buf->b_s.b_p_spl = vim_strsave(p_spl);
@@ -11284,16 +11350,19 @@ save_file_ff(buf)
  * from when editing started (save_file_ff() called).
  * Also when 'endofline' was changed and 'binary' is set, or when 'bomb' was
  * changed and 'binary' is not set.
- * Don't consider a new, empty buffer to be changed.
+ * When "ignore_empty" is true don't consider a new, empty buffer to be
+ * changed.
  */
     int
-file_ff_differs(buf)
+file_ff_differs(buf, ignore_empty)
     buf_T	*buf;
+    int		ignore_empty;
 {
     /* In a buffer that was never loaded the options are not valid. */
     if (buf->b_flags & BF_NEVERLOADED)
 	return FALSE;
-    if ((buf->b_flags & BF_NEW)
+    if (ignore_empty
+	    && (buf->b_flags & BF_NEW)
 	    && buf->b_ml.ml_line_count == 1
 	    && *ml_get_buf(buf, (linenr_T)1, FALSE) == NUL)
 	return FALSE;

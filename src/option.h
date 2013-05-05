@@ -33,7 +33,7 @@
 #     ifdef EBCDIC
 #define DFLT_EFM	"%*[^ ] %*[^ ] %f:%l%*[ ]%m,%*[^\"]\"%f\"%*\\D%l: %m,\"%f\"%*\\D%l: %m,%f:%l:%c:%m,%f(%l):%m,%f:%l:%m,\"%f\"\\, line %l%*\\D%c%*[^ ] %m,%D%*\\a[%*\\d]: Entering directory `%f',%X%*\\a[%*\\d]: Leaving directory `%f',%DMaking %*\\a in %f,%f|%l| %m"
 #     else
-#define DFLT_EFM	"%*[^\"]\"%f\"%*\\D%l: %m,\"%f\"%*\\D%l: %m,%-G%f:%l: (Each undeclared identifier is reported only once,%-G%f:%l: for each function it appears in.),%-GIn file included from %f:%l:%c,%-GIn file included from %f:%l,%-Gfrom %f:%l:%c,%-Gfrom %f:%l,%f:%l:%c:%m,%f(%l):%m,%f:%l:%m,\"%f\"\\, line %l%*\\D%c%*[^ ] %m,%D%*\\a[%*\\d]: Entering directory `%f',%X%*\\a[%*\\d]: Leaving directory `%f',%D%*\\a: Entering directory `%f',%X%*\\a: Leaving directory `%f',%DMaking %*\\a in %f,%f|%l| %m"
+#define DFLT_EFM	"%*[^\"]\"%f\"%*\\D%l: %m,\"%f\"%*\\D%l: %m,%-G%f:%l: (Each undeclared identifier is reported only once,%-G%f:%l: for each function it appears in.),%-GIn file included from %f:%l:%c:,%-GIn file included from %f:%l:%c\\,,%-GIn file included from %f:%l:%c,%-GIn file included from %f:%l,%-G%*[ ]from %f:%l:%c,%-G%*[ ]from %f:%l:,%-G%*[ ]from %f:%l\\,,%-G%*[ ]from %f:%l,%f:%l:%c:%m,%f(%l):%m,%f:%l:%m,\"%f\"\\, line %l%*\\D%c%*[^ ] %m,%D%*\\a[%*\\d]: Entering directory `%f',%X%*\\a[%*\\d]: Leaving directory `%f',%D%*\\a: Entering directory `%f',%X%*\\a: Leaving directory `%f',%DMaking %*\\a in %f,%f|%l| %m"
 #     endif
 #    endif
 #   endif
@@ -169,10 +169,12 @@
 #define CPO_SUBPERCENT	'/'	/* % in :s string uses previous one */
 #define CPO_BACKSL	'\\'	/* \ is not special in [] */
 #define CPO_CHDIR	'.'	/* don't chdir if buffer is modified */
+#define CPO_SCOLON	';'	/* using "," and ";" will skip over char if
+				 * cursor would not move */
 /* default values for Vim, Vi and POSIX */
 #define CPO_VIM		"aABceFs"
-#define CPO_VI		"aAbBcCdDeEfFgHiIjJkKlLmMnoOpPqrRsStuvwWxXyZ$!%*-+<>"
-#define CPO_ALL		"aAbBcCdDeEfFgHiIjJkKlLmMnoOpPqrRsStuvwWxXyZ$!%*-+<>#{|&/\\."
+#define CPO_VI		"aAbBcCdDeEfFgHiIjJkKlLmMnoOpPqrRsStuvwWxXyZ$!%*-+<>;"
+#define CPO_ALL		"aAbBcCdDeEfFgHiIjJkKlLmMnoOpPqrRsStuvwWxXyZ$!%*-+<>#{|&/\\.;"
 
 /* characters for p_ww option: */
 #define WW_ALL		"bshl<>[],~"
@@ -391,6 +393,7 @@ EXTERN long	p_ph;		/* 'pumheight' */
 EXTERN char_u	*p_cpo;		/* 'cpoptions' */
 #ifdef FEAT_CSCOPE
 EXTERN char_u	*p_csprg;	/* 'cscopeprg' */
+EXTERN int	p_csre;		/* 'cscoperelative' */
 # ifdef FEAT_QUICKFIX
 EXTERN char_u	*p_csqf;	/* 'cscopequickfix' */
 #  define	CSQF_CMDS   "sgdctefi"
@@ -816,7 +819,7 @@ EXTERN long	p_ttyscroll;	/* 'ttyscroll' */
 EXTERN char_u	*p_ttym;	/* 'ttymouse' */
 EXTERN unsigned ttym_flags;
 # ifdef IN_OPTION_C
-static char *(p_ttym_values[]) = {"xterm", "xterm2", "dec", "netterm", "jsbterm", "pterm", NULL};
+static char *(p_ttym_values[]) = {"xterm", "xterm2", "dec", "netterm", "jsbterm", "pterm", "urxvt", NULL};
 # endif
 # define TTYM_XTERM		0x01
 # define TTYM_XTERM2		0x02
@@ -824,6 +827,7 @@ static char *(p_ttym_values[]) = {"xterm", "xterm2", "dec", "netterm", "jsbterm"
 # define TTYM_NETTERM		0x08
 # define TTYM_JSBTERM		0x10
 # define TTYM_PTERM		0x20
+# define TTYM_URXVT		0x40
 #endif
 EXTERN char_u	*p_udir;	/* 'undodir' */
 EXTERN long	p_ul;		/* 'undolevels' */
@@ -854,7 +858,11 @@ static char *(p_ve_values[]) = {"block", "insert", "all", "onemore", NULL};
 # define VE_ONEMORE	8
 #endif
 EXTERN long	p_verbose;	/* 'verbose' */
-EXTERN char_u	*p_vfile;	/* 'verbosefile' */
+#ifdef IN_OPTION_C
+char_u	*p_vfile = (char_u *)""; /* used before options are initialized */
+#else
+extern char_u	*p_vfile;	/* 'verbosefile' */
+#endif
 EXTERN int	p_warn;		/* 'warn' */
 #ifdef FEAT_CMDL_COMPL
 EXTERN char_u	*p_wop;		/* 'wildoptions' */
@@ -872,6 +880,7 @@ EXTERN int	p_wiv;		/* 'weirdinvert' */
 EXTERN char_u	*p_ww;		/* 'whichwrap' */
 EXTERN long	p_wc;		/* 'wildchar' */
 EXTERN long	p_wcm;		/* 'wildcharm' */
+EXTERN long	p_wic;		/* 'wildignorecase' */
 EXTERN char_u	*p_wim;		/* 'wildmode' */
 #ifdef FEAT_WILDMENU
 EXTERN int	p_wmnu;		/* 'wildmenu' */
@@ -979,9 +988,6 @@ enum
     , BV_MOD
     , BV_MPS
     , BV_NF
-#ifdef FEAT_OSFILETYPE
-    , BV_OFT
-#endif
 #ifdef FEAT_COMPL_FUNC
     , BV_OFU
 #endif

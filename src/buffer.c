@@ -416,6 +416,14 @@ close_buffer(win, buf, action)
 #endif
 
     buf_freeall(buf, (del_buf ? BFA_DEL : 0) + (wipe_buf ? BFA_WIPE : 0));
+    if (
+#ifdef FEAT_WINDOWS
+	win_valid(win) &&
+#else
+	win != NULL &&
+#endif
+			  win->w_buffer == buf)
+	win->w_buffer = NULL;  /* make sure we don't use the buffer now */
 
 #ifdef FEAT_AUTOCMD
     /* Autocommands may have deleted the buffer. */
@@ -560,6 +568,11 @@ buf_freeall(buf, flags)
 #ifdef FEAT_DIFF
     diff_buf_delete(buf);	    /* Can't use 'diff' for unloaded buffer. */
 #endif
+#ifdef FEAT_SYN_HL
+    /* Remove any ownsyntax, unless exiting. */
+    if (firstwin != NULL && curwin->w_buffer == buf)
+	reset_synblock(curwin);
+#endif
 
 #ifdef FEAT_FOLDING
     /* No folds in an empty buffer. */
@@ -639,6 +652,9 @@ free_buffer_stuff(buf, free_options)
     {
 	clear_wininfo(buf);		/* including window-local options */
 	free_buf_options(buf, TRUE);
+#ifdef FEAT_SPELL
+	ga_clear(&buf->b_s.b_langp);
+#endif
     }
 #ifdef FEAT_EVAL
     vars_clear(&buf->b_vars.dv_hashtab); /* free all internal variables */
@@ -660,9 +676,6 @@ free_buffer_stuff(buf, free_options)
 #ifdef FEAT_MBYTE
     vim_free(buf->b_start_fenc);
     buf->b_start_fenc = NULL;
-#endif
-#ifdef FEAT_SPELL
-    ga_clear(&buf->b_s.b_langp);
 #endif
 }
 
@@ -1288,9 +1301,12 @@ do_buffer(action, start, dir, count, forceit)
     /* Go to the other buffer. */
     set_curbuf(buf, action);
 
-#if defined(FEAT_LISTCMDS) && defined(FEAT_SCROLLBIND)
+#if defined(FEAT_LISTCMDS) \
+	&& (defined(FEAT_SCROLLBIND) || defined(FEAT_CURSORBIND))
     if (action == DOBUF_SPLIT)
-	curwin->w_p_scb = FALSE;	/* reset 'scrollbind' */
+    {
+	RESET_BINDING(curwin);	/* reset 'scrollbind' and 'cursorbind' */
+    }
 #endif
 
 #if defined(FEAT_AUTOCMD) && defined(FEAT_EVAL)
@@ -1343,6 +1359,10 @@ set_curbuf(buf, action)
 # endif
 #endif
     {
+#ifdef FEAT_SYN_HL
+	if (prevbuf == curwin->w_buffer)
+	    reset_synblock(curwin);
+#endif
 #ifdef FEAT_WINDOWS
 	if (unload)
 	    close_windows(prevbuf, FALSE);
@@ -1392,10 +1412,6 @@ enter_buffer(buf)
     foldUpdateAll(curwin);	/* update folds (later). */
 #endif
 
-#ifdef FEAT_SYN_HL
-    reset_synblock(curwin);
-    curwin->w_s = &(buf->b_s);
-#endif
     /* Get the buffer in the current window. */
     curwin->w_buffer = buf;
     curbuf = buf;
@@ -1404,6 +1420,10 @@ enter_buffer(buf)
 #ifdef FEAT_DIFF
     if (curwin->w_p_diff)
 	diff_buf_add(curbuf);
+#endif
+
+#ifdef FEAT_SYN_HL
+    curwin->w_s = &(buf->b_s);
 #endif
 
     /* Cursor on first line by default. */
@@ -1805,9 +1825,6 @@ free_buf_options(buf, free_p_ff)
 #ifdef FEAT_AUTOCMD
     clear_string_option(&buf->b_p_ft);
 #endif
-#ifdef FEAT_OSFILETYPE
-    clear_string_option(&buf->b_p_oft);
-#endif
 #ifdef FEAT_CINDENT
     clear_string_option(&buf->b_p_cink);
     clear_string_option(&buf->b_p_cino);
@@ -1917,9 +1934,7 @@ buflist_getfile(n, lnum, options, forceit)
 		tabpage_new();
 	    else if (win_split(0, 0) == FAIL)	/* Open in a new window */
 		return FAIL;
-# ifdef FEAT_SCROLLBIND
-	    curwin->w_p_scb = FALSE;
-# endif
+	    RESET_BINDING(curwin);
 	}
     }
 #endif
@@ -2525,6 +2540,9 @@ get_winopts(buf)
     /* Set 'foldlevel' to 'foldlevelstart' if it's not negative. */
     if (p_fdls >= 0)
 	curwin->w_p_fdl = p_fdls;
+#endif
+#ifdef FEAT_SYN_HL
+    check_colorcolumn(curwin);
 #endif
 }
 
@@ -3175,7 +3193,7 @@ maketitle()
 	    /* format: "fname + (path) (1 of 2) - VIM" */
 
 	    if (curbuf->b_fname == NULL)
-		STRCPY(buf, _("[No Name]"));
+		vim_strncpy(buf, (char_u *)_("[No Name]"), IOSIZE - 100);
 	    else
 	    {
 		p = transstr(gettail(curbuf->b_fname));
@@ -3231,7 +3249,7 @@ maketitle()
 	    if (serverName != NULL)
 	    {
 		STRCAT(buf, " - ");
-		STRCAT(buf, serverName);
+		vim_strcat(buf, serverName, IOSIZE);
 	    }
 	    else
 #endif
@@ -3240,9 +3258,8 @@ maketitle()
 	    if (maxlen > 0)
 	    {
 		/* make it shorter by removing a bit in the middle */
-		len = vim_strsize(buf);
-		if (len > maxlen)
-		    trunc_string(buf, buf, maxlen);
+		if (vim_strsize(buf) > maxlen)
+		    trunc_string(buf, buf, maxlen, IOSIZE);
 	    }
 	}
     }
@@ -3363,7 +3380,8 @@ free_titles()
  * or truncated if too long, fillchar is used for all whitespace.
  */
     int
-build_stl_str_hl(wp, out, outlen, fmt, use_sandbox, fillchar, maxwidth, hltab, tabtab)
+build_stl_str_hl(wp, out, outlen, fmt, use_sandbox, fillchar,
+						      maxwidth, hltab, tabtab)
     win_T	*wp;
     char_u	*out;		/* buffer to write into != NameBuff */
     size_t	outlen;		/* length of out[] */
@@ -3458,6 +3476,18 @@ build_stl_str_hl(wp, out, outlen, fmt, use_sandbox, fillchar, maxwidth, hltab, t
     prevchar_isitem = FALSE;
     for (s = usefmt; *s; )
     {
+	if (curitem == STL_MAX_ITEM)
+	{
+	    /* There are too many items.  Add the error code to the statusline
+	     * to give the user a hint about what went wrong. */
+	    if (p + 6 < out + outlen)
+	    {
+		mch_memmove(p, " E541", (size_t)5);
+		p += 5;
+	    }
+	    break;
+	}
+
 	if (*s != NUL && *s != '%')
 	    prevchar_isflag = prevchar_isitem = FALSE;
 
@@ -3473,6 +3503,8 @@ build_stl_str_hl(wp, out, outlen, fmt, use_sandbox, fillchar, maxwidth, hltab, t
 	 * Handle one '%' item.
 	 */
 	s++;
+	if (*s == NUL)  /* ignore trailing % */
+	    break;
 	if (*s == '%')
 	{
 	    if (p + 1 >= out + outlen)

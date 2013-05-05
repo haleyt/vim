@@ -27,7 +27,9 @@ SCRIPTS = test1.out test3.out test4.out test5.out test6.out \
 		test56.out test57.out test58.out test59.out test60.out \
 		test61.out test62.out test63.out test64.out test65.out \
 		test66.out test67.out test68.out test69.out test70.out \
-		test71.out test72.out test73.out
+		test71.out test72.out test73.out test74.out test75.out \
+		test76.out test77.out test78.out test79.out test80.out \
+		test81.out test82.out test83.out
 
 .SUFFIXES: .in .out
 
@@ -120,3 +122,13 @@ test70.out: test70.in
 test71.out: test71.in
 test72.out: test72.in
 test73.out: test73.in
+test74.out: test74.in
+test75.out: test75.in
+test76.out: test76.in
+test77.out: test77.in
+test78.out: test78.in
+test79.out: test79.in
+test80.out: test80.in
+test81.out: test81.in
+test82.out: test82.in
+test83.out: test83.in

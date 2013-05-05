@@ -150,6 +150,18 @@ example, if Alt-b produces <Esc>b, use this: >
 (the ^[ is a real <Esc> here, use CTRL-V <Esc> to enter it)
 The advantage over a mapping is that it works in all situations.
 
+You can define any key codes, e.g.: >
+	:set t_xy=^[foo;
+There is no warning for using a name that isn't recognized.  You can map these
+codes as you like: >
+	:map <t_xy> something
+<								*E846*
+When a key code is not set, it's like it does not exist.  Trying to get its
+value will result in an error: >
+	:set t_kb=
+	:set t_kb
+	E846: Key code not set: t_kb
+
 The t_xx options cannot be set from a |modeline| or in the |sandbox|, for
 security reasons.
 
@@ -1434,6 +1446,15 @@ A jump table for the options with a short description can be found at |Q_op|.
 			explicitly accessed using the "* notation.  Also see
 			|gui-clipboard|.
 
+	unnamedplus	A variant of "unnamed" flag which uses the clipboard
+			register '+' (|quoteplus|) instead of register '*' for
+			all operations except yank.  Yank shall copy the text
+			into register '+' and also into '*' when "unnamed" is
+			included.
+			Only available with the |+x11| feature.
+			Availability can be checked with: >
+				if has('unnamedplus')
+<
 	autoselect	Works like the 'a' flag in 'guioptions': If present,
 			then whenever Visual mode is started, or the Visual
 			area extended, Vim tries to become the owner of the
@@ -2069,6 +2090,12 @@ A jump table for the options with a short description can be found at |Q_op|.
 								*cpo->*
 		>	When appending to a register, put a line break before
 			the appended text.
+								*cpo-;*
+		;	When using |,| or |;| to repeat the last |t| search
+			and the cursor is right in front of the searched
+			character, the cursor won't move. When not included,
+			the cursor would skip over it and jump to the
+			following occurence.
 
 	POSIX flags.  These are not included in the Vi default value, except
 	when $VIM_POSIX was set on startup. |posix|
@@ -2160,6 +2187,16 @@ A jump table for the options with a short description can be found at |Q_op|.
 			{not in Vi}
 	Specifies whether to use quickfix window to show cscope results.
 	See |cscopequickfix|.
+
+						*'cscoperelative'* *'csre'*
+'cscoperelative' 'csre' boolean (default off)
+			global
+			{not available when compiled without the |+cscope|
+			feature}
+			{not in Vi}
+	In the absence of a prefix (-P) for cscope. setting this option enables
+	to use the basename of cscope.out path as the prefix.
+	See |cscoperelative|.
 
 				*'cscopetag'* *'cst'* *'nocscopetag'* *'nocst'*
 'cscopetag' 'cst'	boolean (default off)
@@ -7530,8 +7567,9 @@ A jump table for the options with a short description can be found at |Q_op|.
 	!	When included, save and restore global variables that start
 		with an uppercase letter, and don't contain a lowercase
 		letter.  Thus "KEEPTHIS and "K_L_M" are stored, but "KeepThis"
-		and "_K_L_M" are not.  Only String and Number types are
-		stored.
+		and "_K_L_M" are not.  Nested List and Dict items may not be
+		read back correctly, you end up with a string representation
+		instead.
 	"	Maximum number of lines saved for each register.  Old name of
 		the '<' item, with the disadvantage that you need to put a
 		backslash before the ", otherwise it will be recognized as the
@@ -7746,6 +7784,17 @@ A jump table for the options with a short description can be found at |Q_op|.
 <	The use of |:set+=| and |:set-=| is preferred when adding or removing
 	a pattern from the list.  This avoids problems when a future version
 	uses another default.
+
+
+			*'wildignorecase* *'wic'* *'nowildignorecase* *'nowic'*
+'wildignorecase' 'wic'	boolean	(default off)
+			global
+			{not in Vi}
+	When set case is ignored when completing file names and directories.
+	Has no effect on systems where file name case is generally ignored.
+	Does not apply when the shell is used to expand wildcards, which
+	happens when there are special characters.
+
 
 				*'wildmenu'* *'wmnu'* *'nowildmenu'* *'nowmnu'*
 'wildmenu' 'wmnu'	boolean	(default off)

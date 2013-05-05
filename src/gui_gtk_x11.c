@@ -86,7 +86,6 @@ extern void bonobo_dock_item_set_behavior(BonoboDockItem *dock_item, BonoboDockI
 
 #ifdef HAVE_X11_SUNKEYSYM_H
 # include <X11/Sunkeysym.h>
-static guint32 clipboard_event_time = CurrentTime;
 #endif
 
 /*
@@ -933,7 +932,7 @@ key_press_event(GtkWidget *widget UNUSED,
     guint	state;
     char_u	*s, *d;
 
-    clipboard_event_time = event->time;
+    gui.event_time = event->time;
     key_sym = event->keyval;
     state = event->state;
 
@@ -1128,7 +1127,7 @@ key_release_event(GtkWidget *widget UNUSED,
 		  GdkEventKey *event,
 		  gpointer data UNUSED)
 {
-    clipboard_event_time = event->time;
+    gui.event_time = event->time;
     /*
      * GTK+ 2 input methods may do fancy stuff on key release events too.
      * With the default IM for instance, you can enter any UCS code point
@@ -1172,7 +1171,7 @@ selection_received_cb(GtkWidget		*widget UNUSED,
     char_u	    *tmpbuf = NULL;
     guchar	    *tmpbuf_utf8 = NULL;
     int		    len;
-    int		    motion_type;
+    int		    motion_type = MAUTO;
 
     if (data->selection == clip_plus.gtk_sel_atom)
 	cbd = &clip_plus;
@@ -1181,7 +1180,6 @@ selection_received_cb(GtkWidget		*widget UNUSED,
 
     text = (char_u *)data->data;
     len  = data->length;
-    motion_type = MCHAR;
 
     if (text == NULL || len <= 0)
     {
@@ -1622,7 +1620,7 @@ button_press_event(GtkWidget *widget,
     int x, y;
     int_u vim_modifiers;
 
-    clipboard_event_time = event->time;
+    gui.event_time = event->time;
 
     /* Make sure we have focus now we've been selected */
     if (gtk_socket_id != 0 && !GTK_WIDGET_HAS_FOCUS(widget))
@@ -1733,7 +1731,7 @@ button_release_event(GtkWidget *widget UNUSED,
     int x, y;
     int_u vim_modifiers;
 
-    clipboard_event_time = event->time;
+    gui.event_time = event->time;
 
     /* Remove any motion "machine gun" timers used for automatic further
        extension of allocation areas if outside of the applications window
@@ -3083,7 +3081,7 @@ gui_gtk_set_dnd_targets(void)
 
     for (i = 0; i < (int)N_DND_TARGETS; ++i)
     {
-	if (!clip_html && selection_targets[i].info == TARGET_HTML)
+	if (!clip_html && dnd_targets[i].info == TARGET_HTML)
 	    n_targets--;
 	else
 	    targets[j++] = dnd_targets[i];
@@ -3093,7 +3091,7 @@ gui_gtk_set_dnd_targets(void)
     gtk_drag_dest_set(gui.drawarea,
 		      GTK_DEST_DEFAULT_ALL,
 		      targets, n_targets,
-		      GDK_ACTION_COPY);
+		      GDK_ACTION_COPY | GDK_ACTION_MOVE);
 }
 
 /*
@@ -3902,6 +3900,21 @@ gui_mch_unmaximize()
 }
 
 /*
+ * Called when the font changed while the window is maximized.  Compute the
+ * new Rows and Columns.  This is like resizing the window.
+ */
+    void
+gui_mch_newfont()
+{
+    int w, h;
+
+    gtk_window_get_size(GTK_WINDOW(gui.mainwin), &w, &h);
+    w -= get_menu_tool_width();
+    h -= get_menu_tool_height();
+    gui_resize_shell(w, h);
+}
+
+/*
  * Set the windows size.
  */
     void
@@ -4411,14 +4424,9 @@ gui_mch_init_font(char_u *font_name, int fontset UNUSED)
 
     if (gui_mch_maximized())
     {
-	int w, h;
-
 	/* Update lines and columns in accordance with the new font, keep the
 	 * window maximized. */
-	gtk_window_get_size(GTK_WINDOW(gui.mainwin), &w, &h);
-	w -= get_menu_tool_width();
-	h -= get_menu_tool_height();
-	gui_resize_shell(w, h);
+	gui_mch_newfont();
     }
     else
     {
@@ -5419,7 +5427,7 @@ gui_mch_wait_for_chars(long wtime)
 	}
 
 #if defined(FEAT_NETBEANS_INTG)
-	/* Process the queued netbeans messages. */
+	/* Process any queued netbeans messages. */
 	netbeans_parse_messages();
 #endif
 
@@ -5654,7 +5662,7 @@ clip_mch_own_selection(VimClipboard *cbd)
     int success;
 
     success = gtk_selection_owner_set(gui.drawarea, cbd->gtk_sel_atom,
-				      clipboard_event_time);
+				      gui.event_time);
     gui_mch_update();
     return (success) ? OK : FAIL;
 }

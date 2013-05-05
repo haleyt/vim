@@ -1161,12 +1161,20 @@ do_search(oap, dirc, pat, count, options, tm)
 	{
 	    if (spats[RE_SEARCH].pat == NULL)	    /* no previous pattern */
 	    {
-		EMSG(_(e_noprevre));
-		retval = 0;
-		goto end_do_search;
+		pat = spats[RE_SUBST].pat;
+		if (pat == NULL)
+		{
+		    EMSG(_(e_noprevre));
+		    retval = 0;
+		    goto end_do_search;
+		}
+		searchstr = pat;
 	    }
-	    /* make search_regcomp() use spats[RE_SEARCH].pat */
-	    searchstr = (char_u *)"";
+	    else
+	    {
+		/* make search_regcomp() use spats[RE_SEARCH].pat */
+		searchstr = (char_u *)"";
+	    }
 	}
 
 	if (pat != NULL && *pat != NUL)	/* look for (new) offset */
@@ -1538,6 +1546,7 @@ searchc(cap, t_cmd)
     int			col;
     char_u		*p;
     int			len;
+    int			stop = TRUE;
 #ifdef FEAT_MBYTE
     static char_u	bytes[MB_MAXBYTES];
     static int		bytelen = 1;	/* >1 for multi-byte char */
@@ -1572,6 +1581,12 @@ searchc(cap, t_cmd)
 	t_cmd = last_t_cmd;
 	c = lastc;
 	/* For multi-byte re-use last bytes[] and bytelen. */
+
+	/* Force a move of at least one char, so ";" and "," will move the
+	 * cursor, even if the cursor is right in front of char we are looking
+	 * at. */
+	if (vim_strchr(p_cpo, CPO_SCOLON) == NULL && count == 1 && t_cmd)
+	    stop = FALSE;
     }
 
     if (dir == BACKWARD)
@@ -1604,14 +1619,15 @@ searchc(cap, t_cmd)
 		}
 		if (bytelen == 1)
 		{
-		    if (p[col] == c)
+		    if (p[col] == c && stop)
 			break;
 		}
 		else
 		{
-		    if (vim_memcmp(p + col, bytes, bytelen) == 0)
+		    if (vim_memcmp(p + col, bytes, bytelen) == 0 && stop)
 			break;
 		}
+		stop = TRUE;
 	    }
 	}
 	else
@@ -1621,8 +1637,9 @@ searchc(cap, t_cmd)
 	    {
 		if ((col += dir) < 0 || col >= len)
 		    return FAIL;
-		if (p[col] == c)
+		if (p[col] == c && stop)
 		    break;
+		stop = TRUE;
 	    }
 	}
     }
@@ -2385,24 +2402,24 @@ check_linecomment(line)
     {
 	if (vim_strchr(p, ';') != NULL) /* there may be comments */
 	{
-	    int instr = FALSE;	/* inside of string */
+	    int in_str = FALSE;	/* inside of string */
 
 	    p = line;		/* scan from start */
 	    while ((p = vim_strpbrk(p, (char_u *)"\";")) != NULL)
 	    {
 		if (*p == '"')
 		{
-		    if (instr)
+		    if (in_str)
 		    {
 			if (*(p - 1) != '\\') /* skip escaped quote */
-			    instr = FALSE;
+			    in_str = FALSE;
 		    }
 		    else if (p == line || ((p - line) >= 2
 				      /* skip #\" form */
 				      && *(p - 1) != '\\' && *(p - 2) != '#'))
-			instr = TRUE;
+			in_str = TRUE;
 		}
-		else if (!instr && ((p - line) < 2
+		else if (!in_str && ((p - line) < 2
 				    || (*(p - 1) != '\\' && *(p - 2) != '#')))
 		    break;	/* found! */
 		++p;
@@ -2484,8 +2501,8 @@ showmatch(c)
 	    save_siso = p_siso;
 	    /* Handle "$" in 'cpo': If the ')' is typed on top of the "$",
 	     * stop displaying the "$". */
-	    if (dollar_vcol > 0 && dollar_vcol == curwin->w_virtcol)
-		dollar_vcol = 0;
+	    if (dollar_vcol >= 0 && dollar_vcol == curwin->w_virtcol)
+		dollar_vcol = -1;
 	    ++curwin->w_virtcol;	/* do display ')' just before "$" */
 	    update_screen(VALID);	/* show the new char first */
 
@@ -3901,7 +3918,7 @@ again:
 	curwin->w_cursor = old_pos;
 	goto theend;
     }
-    spat = alloc(len + 29);
+    spat = alloc(len + 31);
     epat = alloc(len + 9);
     if (spat == NULL || epat == NULL)
     {
@@ -3910,7 +3927,7 @@ again:
 	curwin->w_cursor = old_pos;
 	goto theend;
     }
-    sprintf((char *)spat, "<%.*s\\%%(\\_[^>]\\{-}[^/]>\\|>\\)\\c", len, p);
+    sprintf((char *)spat, "<%.*s\\>\\%%(\\s\\_[^>]\\{-}[^/]>\\|>\\)\\c", len, p);
     sprintf((char *)epat, "</%.*s>\\c", len, p);
 
     r = do_searchpair(spat, (char_u *)"", epat, FORWARD, (char_u *)"",
@@ -4527,7 +4544,7 @@ linewhite(lnum)
 #if defined(FEAT_FIND_ID) || defined(PROTO)
 /*
  * Find identifiers or defines in included files.
- * if p_ic && (compl_cont_status & CONT_SOL) then ptr must be in lowercase.
+ * If p_ic && (compl_cont_status & CONT_SOL) then ptr must be in lowercase.
  */
     void
 find_pattern_in_path(ptr, dir, len, whole, skip_comments,
@@ -4573,9 +4590,6 @@ find_pattern_in_path(ptr, dir, len, whole, skip_comments,
     char_u	*already = NULL;
     char_u	*startp = NULL;
     char_u	*inc_opt = NULL;
-#ifdef RISCOS
-    int		previous_munging = __riscosify_control;
-#endif
 #if defined(FEAT_WINDOWS) && defined(FEAT_QUICKFIX)
     win_T	*curwin_save = NULL;
 #endif
@@ -4587,11 +4601,6 @@ find_pattern_in_path(ptr, dir, len, whole, skip_comments,
     file_line = alloc(LSIZE);
     if (file_line == NULL)
 	return;
-
-#ifdef RISCOS
-    /* UnixLib knows best how to munge c file names - turn munging back on. */
-    int __riscosify_control = 0;
-#endif
 
     if (type != CHECK_PATH && type != FIND_DEFINE
 #ifdef FEAT_INS_EXPAND
@@ -5075,9 +5084,7 @@ search_line:
 			if (win_split(0, 0) == FAIL)
 #endif
 			    break;
-#ifdef FEAT_SCROLLBIND
-			curwin->w_p_scb = FALSE;
-#endif
+			RESET_BINDING(curwin);
 		    }
 		    if (depth == -1)
 		    {
@@ -5222,11 +5229,6 @@ fpip_end:
     vim_free(regmatch.regprog);
     vim_free(incl_regmatch.regprog);
     vim_free(def_regmatch.regprog);
-
-#ifdef RISCOS
-   /* Restore previous file munging state. */
-    __riscosify_control = previous_munging;
-#endif
 }
 
     static void

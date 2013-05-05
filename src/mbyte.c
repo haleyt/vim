@@ -132,6 +132,7 @@ static int utf_ptr2cells_len __ARGS((char_u *p, int size));
 static int dbcs_char2cells __ARGS((int c));
 static int dbcs_ptr2cells_len __ARGS((char_u *p, int size));
 static int dbcs_ptr2char __ARGS((char_u *p));
+static int utf_safe_read_char_adv __ARGS((char_u **s, size_t *n));
 
 /*
  * Lookup table to quickly get the length in bytes of a UTF-8 character from
@@ -834,6 +835,27 @@ bomb_size()
 	    n = 4;
     }
     return n;
+}
+
+/*
+ * Remove all BOM from "s" by moving remaining text.
+ */
+    void
+remove_bom(s)
+    char_u *s;
+{
+    if (enc_utf8)
+    {
+	char_u *p = s;
+
+	while ((p = vim_strbyte(p, 0xef)) != NULL)
+	{
+	    if (p[1] == 0xbb && p[2] == 0xbf)
+		STRMOVE(p, p + 3);
+	    else
+		++p;
+	}
+    }
 }
 
 /*
@@ -1698,6 +1720,66 @@ utf_ptr2char(p)
     }
     /* Illegal value, just return the first byte */
     return p[0];
+}
+
+/*
+ * Convert a UTF-8 byte sequence to a wide character.
+ * String is assumed to be terminated by NUL or after "n" bytes, whichever
+ * comes first.
+ * The function is safe in the sense that it never accesses memory beyond the
+ * first "n" bytes of "s".
+ *
+ * On success, returns decoded codepoint, advances "s" to the beginning of
+ * next character and decreases "n" accordingly.
+ *
+ * If end of string was reached, returns 0 and, if "n" > 0, advances "s" past
+ * NUL byte.
+ *
+ * If byte sequence is illegal or incomplete, returns -1 and does not advance
+ * "s".
+ */
+    static int
+utf_safe_read_char_adv(s, n)
+    char_u      **s;
+    size_t      *n;
+{
+    int		c, k;
+
+    if (*n == 0) /* end of buffer */
+	return 0;
+
+    k = utf8len_tab_zero[**s];
+
+    if (k == 1)
+    {
+	/* ASCII character or NUL */
+	(*n)--;
+	return *(*s)++;
+    }
+
+    if ((size_t)k <= *n)
+    {
+	/* We have a multibyte sequence and it isn't truncated by buffer
+	 * limits so utf_ptr2char() is safe to use. Or the first byte is
+	 * illegal (k=0), and it's also safe to use utf_ptr2char(). */
+	c = utf_ptr2char(*s);
+
+	/* On failure, utf_ptr2char() returns the first byte, so here we
+	 * check equality with the first byte. The only non-ASCII character
+	 * which equals the first byte of its own UTF-8 representation is
+	 * U+00C3 (UTF-8: 0xC3 0x83), so need to check that special case too.
+	 * It's safe even if n=1, else we would have k=2 > n. */
+	if (c != (int)(**s) || (c == 0xC3 && (*s)[1] == 0x83))
+	{
+	    /* byte sequence was successfully decoded */
+	    *s += k;
+	    *n -= k;
+	    return c;
+	}
+    }
+
+    /* byte sequence is incomplete or illegal */
+    return -1;
 }
 
 /*
@@ -2667,7 +2749,8 @@ static convertStruct foldCase[] =
 	{0x10400,0x10427,1,40}
 };
 
-static int utf_convert(int a, convertStruct table[], int tableSize);
+static int utf_convert __ARGS((int a, convertStruct table[], int tableSize));
+static int utf_strnicmp __ARGS((char_u *s1, char_u *s2, size_t n1, size_t n2));
 
 /*
  * Generic conversion function for case operations.
@@ -2681,19 +2764,22 @@ utf_convert(a, table, tableSize)
     int			tableSize;
 {
     int start, mid, end; /* indices into table */
+    int entries = tableSize / sizeof(convertStruct);
 
     start = 0;
-    end = tableSize / sizeof(convertStruct);
+    end = entries;
     while (start < end)
     {
 	/* need to search further */
-	mid = (end + start) /2;
+	mid = (end + start) / 2;
 	if (table[mid].rangeEnd < a)
 	    start = mid + 1;
 	else
 	    end = mid;
     }
-    if (table[start].rangeStart <= a && a <= table[start].rangeEnd
+    if (start < entries
+	    && table[start].rangeStart <= a
+	    && a <= table[start].rangeEnd
 	    && (a - table[start].rangeStart) % table[start].step == 0)
 	return (a + table[start].offset);
     else
@@ -2708,7 +2794,7 @@ utf_convert(a, table, tableSize)
 utf_fold(a)
     int		a;
 {
-    return utf_convert(a, foldCase, sizeof(foldCase));
+    return utf_convert(a, foldCase, (int)sizeof(foldCase));
 }
 
 static convertStruct toLower[] =
@@ -3036,7 +3122,7 @@ utf_toupper(a)
 	return TOUPPER_LOC(a);
 
     /* For any other characters use the above mapping table. */
-    return utf_convert(a, toUpper, sizeof(toUpper));
+    return utf_convert(a, toUpper, (int)sizeof(toUpper));
 }
 
     int
@@ -3069,7 +3155,7 @@ utf_tolower(a)
 	return TOLOWER_LOC(a);
 
     /* For any other characters use the above mapping table. */
-    return utf_convert(a, toLower, sizeof(toLower));
+    return utf_convert(a, toLower, (int)sizeof(toLower));
 }
 
     int
@@ -3077,6 +3163,80 @@ utf_isupper(a)
     int		a;
 {
     return (utf_tolower(a) != a);
+}
+
+    static int
+utf_strnicmp(s1, s2, n1, n2)
+    char_u      *s1, *s2;
+    size_t      n1, n2;
+{
+    int		c1, c2, cdiff;
+    char_u	buffer[6];
+
+    for (;;)
+    {
+	c1 = utf_safe_read_char_adv(&s1, &n1);
+	c2 = utf_safe_read_char_adv(&s2, &n2);
+
+	if (c1 <= 0 || c2 <= 0)
+	    break;
+
+	if (c1 == c2)
+	    continue;
+
+	cdiff = utf_fold(c1) - utf_fold(c2);
+	if (cdiff != 0)
+	    return cdiff;
+    }
+
+    /* some string ended or has an incomplete/illegal character sequence */
+
+    if (c1 == 0 || c2 == 0)
+    {
+	/* some string ended. shorter string is smaller */
+	if (c1 == 0 && c2 == 0)
+	    return 0;
+	return c1 == 0 ? -1 : 1;
+    }
+
+    /* Continue with bytewise comparison to produce some result that
+     * would make comparison operations involving this function transitive.
+     *
+     * If only one string had an error, comparison should be made with
+     * folded version of the other string. In this case it is enough
+     * to fold just one character to determine the result of comparison. */
+
+    if (c1 != -1 && c2 == -1)
+    {
+	n1 = utf_char2bytes(utf_fold(c1), buffer);
+	s1 = buffer;
+    }
+    else if (c2 != -1 && c1 == -1)
+    {
+	n2 = utf_char2bytes(utf_fold(c2), buffer);
+	s2 = buffer;
+    }
+
+    while (n1 > 0 && n2 > 0 && *s1 != NUL && *s2 != NUL)
+    {
+	cdiff = (int)(*s1) - (int)(*s2);
+	if (cdiff != 0)
+	    return cdiff;
+
+	s1++;
+	s2++;
+	n1--;
+	n2--;
+    }
+
+    if (n1 > 0 && *s1 == NUL)
+	n1 = 0;
+    if (n2 > 0 && *s2 == NUL)
+	n2 = 0;
+
+    if (n1 == 0 && n2 == 0)
+	return 0;
+    return n1 == 0 ? -1 : 1;
 }
 
 /*
@@ -3092,46 +3252,21 @@ mb_strnicmp(s1, s2, nn)
     char_u	*s1, *s2;
     size_t	nn;
 {
-    int		i, j, l;
+    int		i, l;
     int		cdiff;
-    int		incomplete = FALSE;
     int		n = (int)nn;
 
-    for (i = 0; i < n; i += l)
+    if (enc_utf8)
     {
-	if (s1[i] == NUL && s2[i] == NUL)   /* both strings end */
-	    return 0;
-	if (enc_utf8)
+	return utf_strnicmp(s1, s2, nn, nn);
+    }
+    else
+    {
+	for (i = 0; i < n; i += l)
 	{
-	    l = utf_byte2len(s1[i]);
-	    if (l > n - i)
-	    {
-		l = n - i;		    /* incomplete character */
-		incomplete = TRUE;
-	    }
-	    /* Check directly first, it's faster. */
-	    for (j = 0; j < l; ++j)
-	    {
-		if (s1[i + j] != s2[i + j])
-		    break;
-		if (s1[i + j] == 0)
-		    /* Both stings have the same bytes but are incomplete or
-		     * have illegal bytes, accept them as equal. */
-		    l = j;
-	    }
-	    if (j < l)
-	    {
-		/* If one of the two characters is incomplete return -1. */
-		if (incomplete || i + utf_byte2len(s2[i]) > n)
-		    return -1;
-		cdiff = utf_fold(utf_ptr2char(s1 + i))
-					     - utf_fold(utf_ptr2char(s2 + i));
-		if (cdiff != 0)
-		    return cdiff;
-	    }
-	}
-	else
-	{
+	    if (s1[i] == NUL && s2[i] == NUL)	/* both strings end */
+		return 0;
+
 	    l = (*mb_ptr2len)(s1 + i);
 	    if (l <= 1)
 	    {
@@ -3560,7 +3695,7 @@ dbcs_screen_tail_off(base, p)
     void
 mb_adjust_cursor()
 {
-    mb_adjustpos(&curwin->w_cursor);
+    mb_adjustpos(curbuf, &curwin->w_cursor);
 }
 
 /*
@@ -3568,7 +3703,8 @@ mb_adjust_cursor()
  * If it points to a tail byte it's moved backwards to the head byte.
  */
     void
-mb_adjustpos(lp)
+mb_adjustpos(buf, lp)
+    buf_T	*buf;
     pos_T	*lp;
 {
     char_u	*p;
@@ -3579,7 +3715,7 @@ mb_adjustpos(lp)
 #endif
 	    )
     {
-	p = ml_get(lp->lnum);
+	p = ml_get_buf(buf, lp->lnum, FALSE);
 	lp->col -= (*mb_head_off)(p, p + lp->col);
 #ifdef FEAT_VIRTUALEDIT
 	/* Reset "coladd" when the cursor would be on the right half of a
@@ -4126,7 +4262,7 @@ iconv_string(vcp, str, slen, unconvlenp, resultlenp)
 	done = to - (char *)result;
     }
 
-    if (resultlenp != NULL)
+    if (resultlenp != NULL && result != NULL)
 	*resultlenp = (int)(to - (char *)result);
     return result;
 }
@@ -4159,11 +4295,11 @@ iconv_enabled(verbose)
 {
     if (hIconvDLL != 0 && hMsvcrtDLL != 0)
 	return TRUE;
-    hIconvDLL = LoadLibrary(DYNAMIC_ICONV_DLL);
+    hIconvDLL = vimLoadLib(DYNAMIC_ICONV_DLL);
     if (hIconvDLL == 0)		/* sometimes it's called libiconv.dll */
-	hIconvDLL = LoadLibrary(DYNAMIC_ICONV_DLL_ALT);
+	hIconvDLL = vimLoadLib(DYNAMIC_ICONV_DLL_ALT);
     if (hIconvDLL != 0)
-	hMsvcrtDLL = LoadLibrary(DYNAMIC_MSVCRT_DLL);
+	hMsvcrtDLL = vimLoadLib(DYNAMIC_MSVCRT_DLL);
     if (hIconvDLL == 0 || hMsvcrtDLL == 0)
     {
 	/* Only give the message when 'verbose' is set, otherwise it might be
@@ -5058,6 +5194,10 @@ xim_queue_key_press_event(GdkEventKey *event, int down)
 		/* We had a keypad key, and XIM tried to thieve it */
 		return FALSE;
 
+	    /* This is supposed to fix a problem with iBus, that space
+	     * characters don't work in input mode. */
+	    xim_expected_char = NUL;
+
 	    /* Normal processing */
 	    return imresult;
 	}
@@ -5167,15 +5307,15 @@ im_set_position(row, col)
     void
 xim_set_preedit()
 {
-    if (xic == NULL)
-	return;
-
-    xim_set_focus(TRUE);
-
     XVaNestedList attr_list;
     XRectangle spot_area;
     XPoint over_spot;
     int line_space;
+
+    if (xic == NULL)
+	return;
+
+    xim_set_focus(TRUE);
 
     if (!xim_has_focus)
     {
@@ -5554,11 +5694,11 @@ im_get_status()
     void
 xim_set_status_area()
 {
-    if (xic == NULL)
-	return;
-
     XVaNestedList preedit_list = 0, status_list = 0, list = 0;
     XRectangle pre_area, status_area;
+
+    if (xic == NULL)
+	return;
 
     if (input_style & XIMStatusArea)
     {

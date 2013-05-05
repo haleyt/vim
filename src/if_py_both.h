@@ -12,6 +12,12 @@
  * Common code for if_python.c and if_python3.c.
  */
 
+#ifdef FEAT_MBYTE
+# define ENC_OPT p_enc
+#else
+# define ENC_OPT "latin1"
+#endif
+
 /*
  * obtain a lock on the Vim data structures
  */
@@ -33,7 +39,9 @@ Python_Release_Vim(void)
 
 static PyObject *OutputWrite(PyObject *, PyObject *);
 static PyObject *OutputWritelines(PyObject *, PyObject *);
+static PyObject *OutputFlush(PyObject *, PyObject *);
 
+/* Function to write a line, points to either msg() or emsg(). */
 typedef void (*writefn)(char_u *);
 static void writer(writefn fn, char_u *str, PyInt n);
 
@@ -46,9 +54,10 @@ typedef struct
 
 static struct PyMethodDef OutputMethods[] = {
     /* name,	    function,		calling,    documentation */
-    {"write",	    OutputWrite,	1,	    "" },
-    {"writelines",  OutputWritelines,	1,	    "" },
-    { NULL,	    NULL,		0,	    NULL }
+    {"write",	    OutputWrite,	1,	    ""},
+    {"writelines",  OutputWritelines,	1,	    ""},
+    {"flush",       OutputFlush,        1,          ""},
+    { NULL,	    NULL,		0,	    NULL}
 };
 
 #define PyErr_SetVim(str) PyErr_SetString(VimError, str)
@@ -62,10 +71,10 @@ static struct PyMethodDef OutputMethods[] = {
 OutputWrite(PyObject *self, PyObject *args)
 {
     int len;
-    char *str;
+    char *str = NULL;
     int error = ((OutputObject *)(self))->error;
 
-    if (!PyArg_ParseTuple(args, "s#", &str, &len))
+    if (!PyArg_ParseTuple(args, "et#", ENC_OPT, &str, &len))
 	return NULL;
 
     Py_BEGIN_ALLOW_THREADS
@@ -73,6 +82,7 @@ OutputWrite(PyObject *self, PyObject *args)
     writer((writefn)(error ? emsg : msg), (char_u *)str, len);
     Python_Release_Vim();
     Py_END_ALLOW_THREADS
+    PyMem_Free(str);
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -101,10 +111,10 @@ OutputWritelines(PyObject *self, PyObject *args)
     for (i = 0; i < n; ++i)
     {
 	PyObject *line = PyList_GetItem(list, i);
-	char *str;
+	char *str = NULL;
 	PyInt len;
 
-	if (!PyArg_Parse(line, "s#", &str, &len)) {
+	if (!PyArg_Parse(line, "et#", ENC_OPT, &str, &len)) {
 	    PyErr_SetString(PyExc_TypeError, _("writelines() requires list of strings"));
 	    Py_DECREF(list);
 	    return NULL;
@@ -115,6 +125,7 @@ OutputWritelines(PyObject *self, PyObject *args)
 	writer((writefn)(error ? emsg : msg), (char_u *)str, len);
 	Python_Release_Vim();
 	Py_END_ALLOW_THREADS
+	PyMem_Free(str);
     }
 
     Py_DECREF(list);
@@ -122,52 +133,28 @@ OutputWritelines(PyObject *self, PyObject *args)
     return Py_None;
 }
 
-static char_u *buffer = NULL;
-static PyInt buffer_len = 0;
-static PyInt buffer_size = 0;
-
-static writefn old_fn = NULL;
-
-    static void
-buffer_ensure(PyInt n)
+    static PyObject *
+OutputFlush(PyObject *self UNUSED, PyObject *args UNUSED)
 {
-    PyInt new_size;
-    char_u *new_buffer;
-
-    if (n < buffer_size)
-	return;
-
-    new_size = buffer_size;
-    while (new_size < n)
-	new_size += 80;
-
-    if (new_size != buffer_size)
-    {
-	new_buffer = alloc((unsigned)new_size);
-	if (new_buffer == NULL)
-	    return;
-
-	if (buffer)
-	{
-	    memcpy(new_buffer, buffer, buffer_len);
-	    vim_free(buffer);
-	}
-
-	buffer = new_buffer;
-	buffer_size = new_size;
-    }
+    /* do nothing */
+    Py_INCREF(Py_None);
+    return Py_None;
 }
+
+
+/* Buffer IO, we write one whole line at a time. */
+static garray_T io_ga = {0, 0, 1, 80, NULL};
+static writefn old_fn = NULL;
 
     static void
 PythonIO_Flush(void)
 {
-    if (old_fn && buffer_len)
+    if (old_fn != NULL && io_ga.ga_len > 0)
     {
-	buffer[buffer_len] = 0;
-	old_fn(buffer);
+	((char_u *)io_ga.ga_data)[io_ga.ga_len] = NUL;
+	old_fn((char_u *)io_ga.ga_data);
     }
-
-    buffer_len = 0;
+    io_ga.ga_len = 0;
 }
 
     static void
@@ -175,30 +162,34 @@ writer(writefn fn, char_u *str, PyInt n)
 {
     char_u *ptr;
 
-    if (fn != old_fn && old_fn != NULL)
+    /* Flush when switching output function. */
+    if (fn != old_fn)
 	PythonIO_Flush();
-
     old_fn = fn;
 
+    /* Write each NL separated line.  Text after the last NL is kept for
+     * writing later. */
     while (n > 0 && (ptr = memchr(str, '\n', n)) != NULL)
     {
 	PyInt len = ptr - str;
 
-	buffer_ensure(buffer_len + len + 1);
+	if (ga_grow(&io_ga, (int)(len + 1)) == FAIL)
+	    break;
 
-	memcpy(buffer + buffer_len, str, len);
-	buffer_len += len;
-	buffer[buffer_len] = 0;
-	fn(buffer);
+	mch_memmove(((char *)io_ga.ga_data) + io_ga.ga_len, str, (size_t)len);
+	((char *)io_ga.ga_data)[io_ga.ga_len + len] = NUL;
+	fn((char_u *)io_ga.ga_data);
 	str = ptr + 1;
 	n -= len + 1;
-	buffer_len = 0;
+	io_ga.ga_len = 0;
     }
 
-    /* Put the remaining text into the buffer for later printing */
-    buffer_ensure(buffer_len + n + 1);
-    memcpy(buffer + buffer_len, str, n);
-    buffer_len += n;
+    /* Put the remaining text into io_ga for later printing. */
+    if (n > 0 && ga_grow(&io_ga, (int)(n + 1)) == OK)
+    {
+	mch_memmove(((char *)io_ga.ga_data) + io_ga.ga_len, str, (size_t)n);
+	io_ga.ga_len += (int)n;
+    }
 }
 
 /***************/
@@ -543,7 +534,6 @@ WindowSetattr(PyObject *self, char *name, PyObject *val)
     {
 	long lnum;
 	long col;
-	long len;
 
 	if (!PyArg_Parse(val, "(ll)", &lnum, &col))
 	    return -1;
@@ -558,18 +548,15 @@ WindowSetattr(PyObject *self, char *name, PyObject *val)
 	if (VimErrorCheck())
 	    return -1;
 
-	/* When column is out of range silently correct it. */
-	len = (long)STRLEN(ml_get_buf(this->win->w_buffer, lnum, FALSE));
-	if (col > len)
-	    col = len;
-
 	this->win->w_cursor.lnum = lnum;
 	this->win->w_cursor.col = col;
 #ifdef FEAT_VIRTUALEDIT
 	this->win->w_cursor.coladd = 0;
 #endif
-	update_screen(VALID);
+	/* When column is out of range silently correct it. */
+	check_cursor_col_win(this->win);
 
+	update_screen(VALID);
 	return 0;
     }
     else if (strcmp(name, "height") == 0)
@@ -698,6 +685,7 @@ StringToLine(PyObject *obj)
 {
     const char *str;
     char *save;
+    PyObject *bytes;
     PyInt len;
     PyInt i;
     char *p;
@@ -708,8 +696,9 @@ StringToLine(PyObject *obj)
 	return NULL;
     }
 
-    str = PyString_AsString(obj);
-    len = PyString_Size(obj);
+    bytes = PyString_AsBytes(obj);  /* for Python 2 this does nothing */
+    str = PyString_AsString(bytes);
+    len = PyString_Size(bytes);
 
     /*
      * Error checking: String must not contain newlines, as we
@@ -748,6 +737,7 @@ StringToLine(PyObject *obj)
     }
 
     save[i] = '\0';
+    PyString_FreeBytes(bytes);  /* Python 2 does nothing here */
 
     return save;
 }
@@ -834,7 +824,8 @@ py_fix_cursor(linenr_T lo, linenr_T hi, linenr_T extra)
     invalidate_botline();
 }
 
-/* Replace a line in the specified buffer. The line number is
+/*
+ * Replace a line in the specified buffer. The line number is
  * in Vim format (1-based). The replacement line is given as
  * a Python string object. The object is checked for validity
  * and correct format. Errors are returned as a value of FAIL.
@@ -925,6 +916,193 @@ SetBufferLine(buf_T *buf, PyInt n, PyObject *line, PyInt *len_change)
     }
 }
 
+/* Replace a range of lines in the specified buffer. The line numbers are in
+ * Vim format (1-based). The range is from lo up to, but not including, hi.
+ * The replacement lines are given as a Python list of string objects. The
+ * list is checked for validity and correct format. Errors are returned as a
+ * value of FAIL.  The return value is OK on success.
+ * If OK is returned and len_change is not NULL, *len_change
+ * is set to the change in the buffer length.
+ */
+    static int
+SetBufferLineList(buf_T *buf, PyInt lo, PyInt hi, PyObject *list, PyInt *len_change)
+{
+    /* First of all, we check the thpe of the supplied Python object.
+     * There are three cases:
+     *	  1. NULL, or None - this is a deletion.
+     *	  2. A list	   - this is a replacement.
+     *	  3. Anything else - this is an error.
+     */
+    if (list == Py_None || list == NULL)
+    {
+	PyInt	i;
+	PyInt	n = (int)(hi - lo);
+	buf_T	*savebuf = curbuf;
+
+	PyErr_Clear();
+	curbuf = buf;
+
+	if (u_savedel((linenr_T)lo, (long)n) == FAIL)
+	    PyErr_SetVim(_("cannot save undo information"));
+	else
+	{
+	    for (i = 0; i < n; ++i)
+	    {
+		if (ml_delete((linenr_T)lo, FALSE) == FAIL)
+		{
+		    PyErr_SetVim(_("cannot delete line"));
+		    break;
+		}
+	    }
+	    if (buf == curwin->w_buffer)
+		py_fix_cursor((linenr_T)lo, (linenr_T)hi, (linenr_T)-n);
+	    deleted_lines_mark((linenr_T)lo, (long)i);
+	}
+
+	curbuf = savebuf;
+
+	if (PyErr_Occurred() || VimErrorCheck())
+	    return FAIL;
+
+	if (len_change)
+	    *len_change = -n;
+
+	return OK;
+    }
+    else if (PyList_Check(list))
+    {
+	PyInt	i;
+	PyInt	new_len = PyList_Size(list);
+	PyInt	old_len = hi - lo;
+	PyInt	extra = 0;	/* lines added to text, can be negative */
+	char	**array;
+	buf_T	*savebuf;
+
+	if (new_len == 0)	/* avoid allocating zero bytes */
+	    array = NULL;
+	else
+	{
+	    array = (char **)alloc((unsigned)(new_len * sizeof(char *)));
+	    if (array == NULL)
+	    {
+		PyErr_NoMemory();
+		return FAIL;
+	    }
+	}
+
+	for (i = 0; i < new_len; ++i)
+	{
+	    PyObject *line = PyList_GetItem(list, i);
+
+	    array[i] = StringToLine(line);
+	    if (array[i] == NULL)
+	    {
+		while (i)
+		    vim_free(array[--i]);
+		vim_free(array);
+		return FAIL;
+	    }
+	}
+
+	savebuf = curbuf;
+
+	PyErr_Clear();
+	curbuf = buf;
+
+	if (u_save((linenr_T)(lo-1), (linenr_T)hi) == FAIL)
+	    PyErr_SetVim(_("cannot save undo information"));
+
+	/* If the size of the range is reducing (ie, new_len < old_len) we
+	 * need to delete some old_len. We do this at the start, by
+	 * repeatedly deleting line "lo".
+	 */
+	if (!PyErr_Occurred())
+	{
+	    for (i = 0; i < old_len - new_len; ++i)
+		if (ml_delete((linenr_T)lo, FALSE) == FAIL)
+		{
+		    PyErr_SetVim(_("cannot delete line"));
+		    break;
+		}
+	    extra -= i;
+	}
+
+	/* For as long as possible, replace the existing old_len with the
+	 * new old_len. This is a more efficient operation, as it requires
+	 * less memory allocation and freeing.
+	 */
+	if (!PyErr_Occurred())
+	{
+	    for (i = 0; i < old_len && i < new_len; ++i)
+		if (ml_replace((linenr_T)(lo+i), (char_u *)array[i], FALSE)
+								      == FAIL)
+		{
+		    PyErr_SetVim(_("cannot replace line"));
+		    break;
+		}
+	}
+	else
+	    i = 0;
+
+	/* Now we may need to insert the remaining new old_len. If we do, we
+	 * must free the strings as we finish with them (we can't pass the
+	 * responsibility to vim in this case).
+	 */
+	if (!PyErr_Occurred())
+	{
+	    while (i < new_len)
+	    {
+		if (ml_append((linenr_T)(lo + i - 1),
+					(char_u *)array[i], 0, FALSE) == FAIL)
+		{
+		    PyErr_SetVim(_("cannot insert line"));
+		    break;
+		}
+		vim_free(array[i]);
+		++i;
+		++extra;
+	    }
+	}
+
+	/* Free any left-over old_len, as a result of an error */
+	while (i < new_len)
+	{
+	    vim_free(array[i]);
+	    ++i;
+	}
+
+	/* Free the array of old_len. All of its contents have now
+	 * been dealt with (either freed, or the responsibility passed
+	 * to vim.
+	 */
+	vim_free(array);
+
+	/* Adjust marks. Invalidate any which lie in the
+	 * changed range, and move any in the remainder of the buffer.
+	 */
+	mark_adjust((linenr_T)lo, (linenr_T)(hi - 1),
+						  (long)MAXLNUM, (long)extra);
+	changed_lines((linenr_T)lo, 0, (linenr_T)hi, (long)extra);
+
+	if (buf == curwin->w_buffer)
+	    py_fix_cursor((linenr_T)lo, (linenr_T)hi, (linenr_T)extra);
+
+	curbuf = savebuf;
+
+	if (PyErr_Occurred() || VimErrorCheck())
+	    return FAIL;
+
+	if (len_change)
+	    *len_change = new_len - old_len;
+
+	return OK;
+    }
+    else
+    {
+	PyErr_BadArgument();
+	return FAIL;
+    }
+}
 
 /* Insert a number of lines into the specified buffer after the specifed line.
  * The line number is in Vim format (1-based). The lines to be inserted are
@@ -1130,6 +1308,40 @@ RBAsItem(BufferObject *self, PyInt n, PyObject *val, PyInt start, PyInt end, PyI
     return 0;
 }
 
+    static PyInt
+RBAsSlice(BufferObject *self, PyInt lo, PyInt hi, PyObject *val, PyInt start, PyInt end, PyInt *new_end)
+{
+    PyInt size;
+    PyInt len_change;
+
+    /* Self must be a valid buffer */
+    if (CheckBuffer(self))
+	return -1;
+
+    /* Sort out the slice range */
+    size = end - start + 1;
+
+    if (lo < 0)
+	lo = 0;
+    else if (lo > size)
+	lo = size;
+    if (hi < 0)
+	hi = 0;
+    if (hi < lo)
+	hi = lo;
+    else if (hi > size)
+	hi = size;
+
+    if (SetBufferLineList(self->buf, lo + start, hi + start,
+						    val, &len_change) == FAIL)
+	return -1;
+
+    if (new_end)
+	*new_end = end + len_change;
+
+    return 0;
+}
+
 
     static PyObject *
 RBAppend(BufferObject *self, PyObject *args, PyInt start, PyInt end, PyInt *new_end)
@@ -1267,6 +1479,9 @@ static struct PyMethodDef BufferMethods[] = {
     {"append",	    BufferAppend,	1,	    "Append data to Vim buffer" },
     {"mark",	    BufferMark,		1,	    "Return (row,col) representing position of named mark" },
     {"range",	    BufferRange,	1,	    "Return a range object which represents the part of the given buffer between line numbers s and e" },
+#if PY_VERSION_HEX >= 0x03000000
+    {"__dir__",	    BufferDir,		4,	    "List its attributes" },
+#endif
     { NULL,	    NULL,		0,	    NULL }
 };
 
