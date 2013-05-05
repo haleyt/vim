@@ -47,7 +47,7 @@ struct qfline_S
 /*
  * There is a stack of error lists.
  */
-#define LISTCOUNT   10
+#define LISTCOUNT   50
 
 typedef struct qf_list_S
 {
@@ -891,6 +891,7 @@ qf_new_list(qi, qf_title)
 {
     int		i;
 
+#if 0
     /*
      * If the current entry is not the last entry, delete entries below
      * the current entry.  This makes it possible to browse in a tree-like
@@ -898,6 +899,7 @@ qf_new_list(qi, qf_title)
      */
     while (qi->qf_listcount > qi->qf_curlist + 1)
 	qf_free(qi, --qi->qf_listcount);
+#endif
 
     /*
      * When the stack is full, remove to oldest entry
